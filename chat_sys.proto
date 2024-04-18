@@ -1,0 +1,86 @@
+syntax = "proto3";
+package chat_sys;
+
+// Enumeration of potential user statuses to clearly define possible states a user can have.
+// This state are not functional but representative of the user's availability.
+enum UserStatus {
+    ONLINE = 0;  // The user is online and available to receive messages.
+    BUSY = 1;    // The user is online but marked as busy, may not respond promptly.
+    OFFLINE = 2; // The user is offline and cannot receive messages.
+}
+
+// User represents the essential information about a chat user.
+message User {
+    string username = 1;  // Unique identifier for the user.
+    string ip_address = 2;  // IP address of the user, used for server management, not exposed to other clients.
+    UserStatus status = 3;  // Current status of the user, indicating availability.
+}
+
+// NewUserRequest is used to register a new user on the chat server.
+message NewUserRequest {
+    string username = 1;  // Desired username for the new user. Must be unique across all users.
+    string ip_address = 2;  // IP address from which the user is registering.
+}
+
+// NewUserResponse communicates the outcome of a new user registration attempt.
+message NewUserResponse {
+    bool success = 1;  // Indicates if the registration was successful.
+    string message = 2;  // Accompanying message, e.g., error details or a success confirmation.
+}
+
+// ChatMessageRequest represents a request to send a chat message.
+message ChatMessageRequest {
+    string recipient = 1;  // Username of the recipient. If empty, the message is broadcast to all online users.
+    string content = 2;  // Content of the message being sent.
+    string sender = 3;  // Username of the sender. This must match an authenticated session on the server.
+}
+
+// ChatMessageResponse provides feedback regarding the delivery of a chat message.
+message ChatMessageResponse {
+    bool success = 1;  // Indicates if the message was successfully sent.
+    string message = 2;  // Details about the message delivery or error information.
+}
+
+// UserListRequest is used to fetch a list of currently connected users.
+message UserListRequest {
+    string username = 1;  // Specific username to fetch details for. If empty, fetches all connected users.
+}
+
+// UserListResponse returns a list of users.
+message UserListResponse {
+    repeated User users = 1;  // List of users meeting the criteria specified in UserListRequest.
+}
+
+// StatusUpdateRequest is used to change the status of a user.
+message StatusUpdateRequest {
+    string username = 1;  // Username of the user whose status is to be updated.
+    UserStatus new_status = 2;  // The new status to be applied to the user.
+}
+
+// StatusUpdateResponse communicates the outcome of a status update request.
+message StatusUpdateResponse {
+    bool success = 1;  // Indicates whether the status update was successful.
+    string message = 2;  // Details about the status update or error information.
+}
+
+// Response is a generalized structure used for all responses from the server.
+message Response {
+    int32 operation = 1;  // Numeric code representing the type of operation this response relates to.
+    int32 status_code = 2;  // HTTP-style status code indicating the overall result of the request (e.g., 200 for success, 400 for error).
+    string message = 3;  // Human-readable message providing more details about the result.
+    oneof result {
+        NewUserResponse new_user = 4;  // Details specific to user registration operations.
+        UserListResponse user_list = 5;  // Details specific to user list requests.
+        ChatMessageResponse chat_message = 6;  // Details specific to chat message sending operations.
+        StatusUpdateResponse status_update = 7;  // Details specific to user status updates.
+    }
+}
+
+// ChatService defines the RPC services available for the chat system.
+service ChatService {
+    rpc RegisterNewUser(NewUserRequest) returns (Response);  // Registers a new user with the system.
+    rpc SendChatMessage(ChatMessageRequest) returns (Response);  // Sends a chat message.
+    rpc UpdateUserStatus(StatusUpdateRequest) returns (Response);  // Updates the status of a user.
+    rpc GetUsers(UserListRequest) returns (Response);  // Retrieves a list of users or a specific user's details.
+    rpc UnregisterUser(User) returns (Response);  // Unregisters a user from the system.
+}
