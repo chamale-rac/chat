@@ -1,2 +1,2 @@
 # chat-system
-Creating a Chat System for the Operative Systems Course
+Creating a Chat System for the Operating Systems Course
