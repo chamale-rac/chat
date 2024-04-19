@@ -1,5 +1,5 @@
 syntax = "proto3";
-package chat_sys;
+package chat;
 
 // Enumeration of potential user statuses to clearly define possible states a user can have.
 // This state are not functional but represent the user's availability to receive messages.
@@ -72,7 +72,7 @@ message RequestMetadata {
 }
 
 // Request types consolidated into a unified structure with a type indicator.
-message ChatRequest {
+message Request {
     RequestMetadata metadata = 1;  // Include metadata in each request.
     enum RequestType {
         REGISTER_USER = 0;
@@ -108,5 +108,5 @@ message Response {
 
 // Service definition that reflects a clean API surface for clients.
 service ChatService {
-    rpc ProcessRequest(ChatRequest) returns (Response);
+    rpc ProcessRequest(Request) returns (Response);
 }
