@@ -24,6 +24,7 @@
 std::atomic<bool> running{true};
 std::atomic<bool> in_input_mode{false};
 std::atomic<bool> waiting_response{false};
+std::atomic<bool> streaming_mode{false};
 std::mutex cout_mutex;
 std::deque<std::string> message_buffer; // Buffer for messages received during input mode
 
@@ -79,7 +80,7 @@ void messageListener(int sock)
       std::string message;
       if (response.status_code() != chat::StatusCode::OK)
       {
-        message = RED "Server error: " + response.message() + "(" + std::to_string(response.operation()) + ")" RESET;
+        message = RED "Server error: " + response.message() + RESET;
       }
       else
       {
@@ -97,7 +98,14 @@ void messageListener(int sock)
           if (response.has_user_list())
           {
             const auto &user_list = response.user_list();
-            message = std::string(MAGENTA) + "Users online: ";
+            if (user_list.type() == chat::UserListType::SINGLE)
+            {
+              message = std::string(MAGENTA) + "User info: ";
+            }
+            else
+            {
+              message = std::string(MAGENTA) + "Users online: ";
+            }
             for (const auto &user : user_list.users())
             {
               message += user.username() + " ";
@@ -113,7 +121,14 @@ void messageListener(int sock)
 
       if (response.operation() == chat::Operation::INCOMING_MESSAGE)
       {
-        message_buffer.push_back(message);
+        if (streaming_mode)
+        {
+          std::cout << message << std::endl;
+        }
+        else
+        {
+          message_buffer.push_back(message);
+        }
       }
       else
       {
@@ -136,7 +151,14 @@ void messageListener(int sock)
 void printMenu()
 {
   std::lock_guard<std::mutex> lock(cout_mutex);
-  std::cout << GREEN << "1. Broadcast Message\n2. Send Direct Message\n3. Change Status\n4. List Users\n5. Get User Info\n6. Help\n7. Exit\n"
+  std::cout << GREEN << "1. Broadcast Message\n";
+  std::cout << "2. Send Direct Message\n";
+  std::cout << "3. Change Status\n";
+  std::cout << "4. List Users\n";
+  std::cout << "5. Get User Info\n";
+  std::cout << "6. Help\n";
+  std::cout << "7. Stream Messages\n";
+  std::cout << "8. Exit\n"
             << RESET;
   std::cout << "Enter choice: ";
 }
@@ -235,7 +257,8 @@ void displayHelp()
   std::cout << "4. List Users: List all users online\n";
   std::cout << "5. Get User Info: Get information about a specific user\n";
   std::cout << "6. Help: Display this help message\n";
-  std::cout << "7. Exit: Exit the program\n";
+  std::cout << "7. Stream Messages: Stream messages from the server\n";
+  std::cout << "8. Exit: Exit the program\n";
 }
 
 void handleUnregisterUser(int sock, const std::string &username)
@@ -300,7 +323,7 @@ int main(int argc, char *argv[])
   }
   else
   {
-    std::cerr << "Failed to receive registration confirmation." << std::endl;
+    std::cerr << "Connection closed." << std::endl;
     close(sock);
     return -1;
   }
@@ -336,6 +359,16 @@ int main(int argc, char *argv[])
       displayHelp();
       break;
     case 7:
+      if (!streaming_mode)
+      {
+        flush_message_buffer();
+      }
+      streaming_mode = !streaming_mode;
+      std::cout << "Streaming mode: " << (streaming_mode ? "ON" : "OFF") << std::endl;
+      flush_message_buffer();
+      waiting_response = false;
+      break;
+    case 8:
       // This is the exit option and special handling is required
       // 1. Stop running the listener thread
       running = false;
@@ -368,7 +401,7 @@ int main(int argc, char *argv[])
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     flush_message_buffer();
-  } while (choice != 7);
+  } while (choice != 8);
 
   // If by some reason the listener thread is still running, stop it
   running = false;

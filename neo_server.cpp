@@ -368,7 +368,6 @@ void handle_client(int client_sock)
           if (got_registered)
           {
             std::cout << "User registered successfully." << std::endl;
-
             username = request.register_user().username();
             registered = true;
           }
