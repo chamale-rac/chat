@@ -20,18 +20,19 @@ std::map<std::string, chat::UserStatus> user_status;                      // Map
 std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking
 
 // Helper function to send a protobuf message to a socket
-void sendProtoMessage(int client_sock, const google::protobuf::Message &message)
+void send_proto_message(int client_sock, const google::protobuf::Message &message)
 {
   std::string buffer;
   message.SerializeToString(&buffer);
 
   uint32_t size = htonl(buffer.size()); // Ensure network byte order for the size
+
   send(client_sock, &size, sizeof(size), 0);
   send(client_sock, buffer.data(), buffer.size(), 0);
 }
 
 // Broadcast a protobuf message to all connected clients
-void broadcastProtoMessage(const google::protobuf::Message &message)
+void send_broadcast_proto_message(const google::protobuf::Message &message)
 {
   std::string buffer;
   message.SerializeToString(&buffer);
@@ -48,132 +49,214 @@ void broadcastProtoMessage(const google::protobuf::Message &message)
 }
 
 /**
- * Handle User Registration (REGISTER_USER)
+ * REGISTER_USER main function
  */
-void handle_registration(const chat::Request &request, int client_sock)
+void handle_registration(const chat::Request &request, int client_sock, chat::Operation operation)
 {
   auto user_request = request.register_user();
+  const auto &username = user_request.username();
+
   std::lock_guard<std::mutex> lock(clients_mutex);
-  if (user_details.find(user_request.username()) == user_details.end())
+
+  chat::Response response;
+  response.set_operation(operation);
+
+  if (user_details.find(username) == user_details.end())
   {
     // Register user
-    user_details[user_request.username()] = user_request.ip_address();
-    user_status[user_request.username()] = chat::UserStatus::ONLINE; // Set status to online
-    client_sessions[client_sock] = user_request.username();          // Link socket to username
+    user_details.emplace(username, user_request.ip_address());
+    user_status.emplace(username, chat::UserStatus::ONLINE); // Set status to online
+    client_sessions.emplace(client_sock, username);          // Link socket to username
 
-    chat::Response response;
     response.set_message("User registered successfully.");
-    response.set_status_code(200); // OK
-    sendProtoMessage(client_sock, response);
+    response.set_status_code(chat::StatusCode::OK);
   }
   else
   {
-    chat::Response response;
     response.set_message("Username is already taken.");
-    response.set_status_code(400); // Bad request
-    sendProtoMessage(client_sock, response);
+    response.set_status_code(chat::StatusCode::BAD_REQUEST);
   }
+
+  send_proto_message(client_sock, response);
 }
 
 /**
- * Handle Get Users (GET_USERS)
+ * GET_USERS auxiliary function
  */
-void handle_get_users(const chat::Request &request, int client_sock)
+void add_user_to_response(const std::pair<std::string, std::string> &user, chat::UserListResponse &response)
 {
-  std::lock_guard<std::mutex> lock(clients_mutex);
+  chat::User *user_proto = response.add_users();
+  user_proto->set_username(user.first);
+  user_proto->set_ip_address(user.second);
+  // Get the status from the user_status map
+  user_proto->set_status(user_status[user.first]);
+}
+
+/**
+ * GET_USERS main function
+ */
+void handle_get_users(const chat::Request &request, int client_sock, chat::Operation operation)
+{
 
   // Fetch the request for the user list
   auto user_list_request = request.get_users();
+  const auto &username = user_list_request.username();
+
+  std::lock_guard<std::mutex> lock(clients_mutex);
+
+  chat::Response response;
+  response.set_operation(operation);
+
   chat::UserListResponse user_list_response;
 
-  if (user_list_request.username().empty())
+  if (username.empty())
   {
     // Return all connected users
     for (const auto &user : user_details)
     {
-      chat::User *user_proto = user_list_response.add_users();
-      user_proto->set_username(user.first);
-      user_proto->set_ip_address(user.second);
-      // Get the status from the user_status map
-      user_proto->set_status(user_status[user.first]);
+      add_user_to_response(user, user_list_response);
     }
+    response.set_message("All users fetched successfully.");
+    response.set_status_code(chat::StatusCode::OK);
   }
   else
   {
     // Return only the specified user
-    auto it = user_details.find(user_list_request.username());
+    auto it = user_details.find(username);
     if (it != user_details.end())
     {
-      chat::User *user_proto = user_list_response.add_users();
-      user_proto->set_username(it->first);
-      user_proto->set_ip_address(it->second);
-      // Get the status from the user_status map
-      user_proto->set_status(user_status[it->first]);
+      add_user_to_response(*it, user_list_response);
+      response.set_message("User fetched successfully.");
+      response.set_status_code(chat::StatusCode::OK);
+    }
+    else
+    {
+      response.set_message("User not found.");
+      response.set_status_code(chat::StatusCode::NOT_FOUND);
     }
   }
 
-  sendProtoMessage(client_sock, user_list_response);
+  response.set_allocated_user_list(&user_list_response);
+  send_proto_message(client_sock, user_list_response);
 }
 
 /**
- * Handle Send Message (SEND_MESSAGE)
+ * SEND_MESSAGE auxiliary function
  */
-void handle_send_message(const chat::Request &request, int client_sock)
+chat::IncomingMessageResponse prepare_message_response(const chat::Request &request, int client_sock)
 {
   auto message = request.send_message();
   chat::IncomingMessageResponse message_response;
   std::lock_guard<std::mutex> lock(clients_mutex); // Lock the clients mutex, for thread safety
-
   message_response.set_sender(client_sessions[client_sock]);
   message_response.set_content(message.content());
+  return message_response;
+}
 
-  if (message.recipient().empty())
+/**
+ * SEND_MESSAGE auxiliary function
+ */
+void send_broadcast_message(chat::Response &response_to_sender, chat::Response &response_to_recipient, chat::IncomingMessageResponse &message_response, int client_sock)
+{
+  message_response.set_type(chat::MessageType::BROADCAST);
+  response_to_recipient.set_message("Broadcast message incoming.");
+  response_to_recipient.set_status_code(chat::StatusCode::OK);
+  response_to_recipient.set_allocated_incoming_message(&message_response);
+  send_broadcast_proto_message(response_to_recipient);
+  response_to_sender.set_message("Broadcast message sent successfully.");
+  response_to_sender.set_status_code(chat::StatusCode::OK);
+  send_proto_message(client_sock, response_to_sender);
+}
+
+/**
+ * SEND_MESSAGE auxiliary function
+ */
+int find_recipient_socket(const std::string &recipient)
+{
+  int recipient_sock = -1;
+  for (auto &session : client_sessions)
   {
-    // If no recipient is specified, broadcast the message to all connected users.
-    broadcastProtoMessage(message_response);
+    if (session.second == recipient)
+    {
+      recipient_sock = session.first;
+      break;
+    }
+  }
+  return recipient_sock;
+}
+
+/**
+ * SEND_MESSAGE auxiliary function
+ */
+void send_direct_message(chat::Response &response_to_sender, chat::Response &response_to_recipient, chat::IncomingMessageResponse &message_response, int client_sock, int recipient_sock)
+{
+  message_response.set_type(chat::MessageType::DIRECT);
+  response_to_recipient.set_message("Message incoming.");
+  response_to_recipient.set_status_code(chat::StatusCode::OK);
+  response_to_recipient.set_allocated_incoming_message(&message_response);
+  send_proto_message(recipient_sock, response_to_recipient);
+  response_to_sender.set_message("Message sent successfully.");
+  response_to_sender.set_status_code(chat::StatusCode::OK);
+  send_proto_message(client_sock, response_to_sender);
+}
+
+/**
+ * SEND_MESSAGE main function
+ */
+void handle_send_message(const chat::Request &request, int client_sock, chat::Operation operation)
+{
+  chat::Response response_to_sender;
+  response_to_sender.set_operation(operation);
+  chat::Response response_to_recipient;
+  response_to_recipient.set_operation(chat::Operation::INCOMING_MESSAGE);
+  chat::IncomingMessageResponse message_response = prepare_message_response(request, client_sock);
+
+  if (request.send_message().recipient().empty())
+  {
+    send_broadcast_message(response_to_sender, response_to_recipient, message_response, client_sock);
   }
   else
   {
-    // Find the recipient's socket
-    int recipient_sock = -1;
-    for (auto &session : client_sessions)
-    {
-      if (session.second == message.recipient())
-      {
-        recipient_sock = session.first;
-        break;
-      }
-    }
-
+    int recipient_sock = find_recipient_socket(request.send_message().recipient());
     if (recipient_sock != -1)
     {
-      sendProtoMessage(recipient_sock, message);
+      send_direct_message(response_to_sender, response_to_recipient, message_response, client_sock, recipient_sock);
     }
     else
     {
-      std::cerr << "Recipient not found." << std::endl;
+      response_to_sender.set_message("Recipient not found.");
+      response_to_sender.set_status_code(chat::StatusCode::NOT_FOUND);
+      send_proto_message(client_sock, response_to_sender);
     }
   }
 }
 
 /**
- * Handle Update Status (UPDATE_STATUS)
+ * UPDATE_STATUS auxiliary function
+ */
+void update_user_status_and_time(int client_sock, const chat::UpdateStatusRequest &status_request)
+{
+  std::lock_guard<std::mutex> lock(clients_mutex);
+  user_status[client_sessions[client_sock]] = status_request.new_status();
+  // last_active[client_sessions[client_sock]] = std::chrono::system_clock::now(); TODO: Move this to any action retrieved on the general handling
+}
+
+/**
+ * UPDATE_STATUS main function
  */
 void update_status(const chat::Request &request, int client_sock)
 {
   auto status_request = request.update_status();
-  std::lock_guard<std::mutex> lock(clients_mutex);
-  user_status[client_sessions[client_sock]] = status_request.new_status();
-  last_active[client_sessions[client_sock]] = std::chrono::system_clock::now();
+  update_user_status_and_time(client_sock, status_request);
 
   chat::Response response;
-  response.set_message("Status updated successfully.");
-  response.set_status_code(200); // OK
-  sendProtoMessage(client_sock, response);
+  response.set_message("Status updated successfully."); // Consider replacing this with a constant or a configuration value
+  response.set_status_code(chat::StatusCode::OK);
+  send_proto_message(client_sock, response);
 }
 
 /**
- * Unregister a user
+ * UNREGISTER_USER main function
  */
 void unregister_user(int client_sock)
 {
@@ -192,19 +275,19 @@ void unregister_user(int client_sock)
     // Prepare a response message
     chat::Response response;
     response.set_message("User unregistered successfully.");
-    response.set_status_code(200); // OK
+    response.set_status_code(chat::StatusCode::OK);
 
     // Send response to the client
-    sendProtoMessage(client_sock, response);
+    send_proto_message(client_sock, response);
   }
   else
   {
     // User not found or already unregistered, send error response
     chat::Response response;
     response.set_message("User not found or already unregistered.");
-    response.set_status_code(404); // Not Found
+    response.set_status_code(chat::StatusCode::NOT_FOUND);
 
-    sendProtoMessage(client_sock, response);
+    send_proto_message(client_sock, response);
   }
 }
 
@@ -240,51 +323,59 @@ void handle_client(int client_sock)
       }
 
       // Handling different types of requests
-      switch (request.type())
+      switch (request.operation())
       {
-      case chat::Request::REGISTER_USER:
+      case chat::Operation::REGISTER_USER:
+
         if (!registered)
         {
-          handle_registration(request, client_sock);
+          handle_registration(request, client_sock, chat::Operation::REGISTER_USER);
           username = request.register_user().username();
           registered = true;
         }
         else
         {
-          send_error(client_sock, "User already registered.");
+
+          chat::Response response;
+          response.set_message("User already registered.");
+          response.set_status_code(chat::StatusCode::BAD_REQUEST);
+          send_proto_message(client_sock, response);
         }
         break;
-      case chat::Request::SEND_MESSAGE:
+      case chat::Operation::SEND_MESSAGE:
         if (registered)
-        {
-          handle_send_message(request, client_sock);
-        }
+          handle_send_message(request, client_sock, chat::Operation::SEND_MESSAGE);
         else
         {
-          send_error(client_sock, "User not registered.");
+          chat::Response response;
+          response.set_message("User not registered.");
+          response.set_status_code(chat::StatusCode::BAD_REQUEST);
+          send_proto_message(client_sock, response);
         }
         break;
-      case chat::Request::UPDATE_STATUS:
+      case chat::Operation::UPDATE_STATUS:
         if (registered)
-        {
           update_status(request, client_sock);
-        }
         else
         {
-          send_error(client_sock, "User not registered.");
+          chat::Response response;
+          response.set_message("User not registered.");
+          response.set_status_code(chat::StatusCode::BAD_REQUEST);
+          send_proto_message(client_sock, response);
         }
         break;
-      case chat::Request::GET_USERS:
+      case chat::Operation::GET_USERS:
         if (registered)
-        {
-          handle_get_users(request, client_sock);
-        }
+          handle_get_users(request, client_sock, chat::Operation::GET_USERS);
         else
         {
-          send_error(client_sock, "User not registered.");
+          chat::Response response;
+          response.set_message("User not registered.");
+          response.set_status_code(chat::StatusCode::BAD_REQUEST);
+          send_proto_message(client_sock, response);
         }
         break;
-      case chat::Request::UNREGISTER_USER:
+      case chat::Operation::UNREGISTER_USER:
         if (registered && username == request.unregister_user().username())
         {
           unregister_user(client_sock);
@@ -292,11 +383,17 @@ void handle_client(int client_sock)
         }
         else
         {
-          send_error(client_sock, "User not registered or username mismatch.");
+          chat::Response response;
+          response.set_message("User not registered or username mismatch.");
+          response.set_status_code(chat::StatusCode::BAD_REQUEST);
+          send_proto_message(client_sock, response);
         }
         break;
       default:
-        send_error(client_sock, "Unknown request type.");
+        chat::Response response;
+        response.set_message("Unknown request type.");
+        response.set_status_code(chat::StatusCode::BAD_REQUEST);
+        send_proto_message(client_sock, response);
         break;
       }
     }
@@ -312,14 +409,6 @@ void handle_client(int client_sock)
 
   close(client_sock);
   std::cout << "Session ended and socket closed for client." << std::endl;
-}
-
-void send_error(int client_sock, const std::string &error_message)
-{
-  chat::Response response;
-  response.set_message(error_message);
-  response.set_status_code(400); // Example: Bad Request
-  sendProtoMessage(client_sock, response);
 }
 
 int main(int argc, char *argv[])
