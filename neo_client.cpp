@@ -51,7 +51,7 @@ void messageListener(int sock)
     {
       if (response.status_code() != chat::StatusCode::OK)
       {
-        std::cerr << "Server error: " << response.message() << std::endl; // TODO: add more details
+        std::cerr << "Server error: " << response.message() << "(" << response.operation() << ")" << std::endl; // TODO: add more details
         break;
       }
 
@@ -72,8 +72,12 @@ void messageListener(int sock)
         }
         break;
       case chat::Operation::GET_USERS:
+        std::cout << "Server response: " << "GET_USERS\n"
+                  << std::endl;
         if (response.has_user_list())
         {
+          std::cout << "Server response: " << "GET_USERS RR\n"
+                    << std::endl;
           const auto &user_list = response.user_list();
           if (user_list.type() == chat::UserListType::ALL)
           {
@@ -85,6 +89,8 @@ void messageListener(int sock)
           }
           for (const auto &user : user_list.users())
           {
+            std::cout << "GET_USERS RR RR\n"
+                      << std::endl;
             std::cout << user.username() << " ";
           }
         }
