@@ -9,15 +9,16 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <thread>
-#include <google/protobuf/io/zero_copy_stream_impl.h>
-#include <google/protobuf/io/coded_stream.h>
 #include <chrono>
 
+#include <errno.h> // For errno, EPIPE
+#include <cstring> // For strerror
+
 std::mutex clients_mutex;
-std::map<int, std::string> client_sessions;                               // Maps client socket to username
-std::map<std::string, std::string> user_details;                          // Maps username to IP address
-std::map<std::string, chat::UserStatus> user_status;                      // Maps username to status
-std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking
+std::map<int, std::string> client_sessions;          // Maps client socket to username
+std::map<std::string, std::string> user_details;     // Maps username to IP address
+std::map<std::string, chat::UserStatus> user_status; // Maps username to status
+// std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking
 
 // Helper function to send a protobuf message to a socket
 void send_proto_message(int client_sock, const google::protobuf::Message &message)
@@ -27,8 +28,30 @@ void send_proto_message(int client_sock, const google::protobuf::Message &messag
 
   uint32_t size = htonl(buffer.size()); // Ensure network byte order for the size
 
-  send(client_sock, &size, sizeof(size), 0);
-  send(client_sock, buffer.data(), buffer.size(), 0);
+  // Ignore SIGPIPE to prevent termination when writing to a closed socket
+  signal(SIGPIPE, SIG_IGN);
+
+  // Wrap the sending operations in a try-catch block to handle possible errors
+  try
+  {
+    ssize_t sent_bytes = send(client_sock, &size, sizeof(size), MSG_NOSIGNAL);
+    if (sent_bytes != sizeof(size))
+    {
+      std::cerr << "Failed to send message size: " << strerror(errno) << std::endl;
+      return; // Early exit on failure
+    }
+
+    sent_bytes = send(client_sock, buffer.data(), buffer.size(), MSG_NOSIGNAL);
+    if (sent_bytes != static_cast<ssize_t>(buffer.size()))
+    {
+      std::cerr << "Failed to send full message: " << strerror(errno) << std::endl;
+      return; // Early exit on failure
+    }
+  }
+  catch (const std::exception &e)
+  {
+    std::cerr << "Exception while sending message: " << e.what() << std::endl;
+  }
 }
 
 // Broadcast a protobuf message to all connected clients
@@ -258,9 +281,10 @@ void update_status(const chat::Request &request, int client_sock)
 /**
  * UNREGISTER_USER main function
  */
-void unregister_user(int client_sock)
+void unregister_user(int client_sock, bool forced = false)
 {
   std::lock_guard<std::mutex> lock(clients_mutex);
+  chat::Response response;
 
   if (client_sessions.find(client_sock) != client_sessions.end())
   {
@@ -268,25 +292,25 @@ void unregister_user(int client_sock)
 
     // Erase user data from maps
     client_sessions.erase(client_sock);
+
     user_details.erase(username);
+
     user_status.erase(username);
-    last_active.erase(username);
+    // last_active.erase(username);
 
     // Prepare a response message
-    chat::Response response;
     response.set_message("User unregistered successfully.");
     response.set_status_code(chat::StatusCode::OK);
-
-    // Send response to the client
-    send_proto_message(client_sock, response);
   }
   else
   {
     // User not found or already unregistered, send error response
-    chat::Response response;
     response.set_message("User not found or already unregistered.");
     response.set_status_code(chat::StatusCode::NOT_FOUND);
+  }
 
+  if (!forced)
+  {
     send_proto_message(client_sock, response);
   }
 }
@@ -299,17 +323,25 @@ void handle_client(int client_sock)
   try
   {
     while (true)
-    { // Continuously handle requests
+    {
       uint32_t size;
-      if (recv(client_sock, &size, sizeof(size), MSG_WAITALL) != sizeof(size))
+      ssize_t result = recv(client_sock, &size, sizeof(size), MSG_WAITALL);
+      if (result != sizeof(size))
       {
-        throw std::runtime_error("Failed to read the size of the message.");
+        if (result == 0)
+        {
+          throw std::runtime_error("Client closed the connection.");
+        }
+        else
+        {
+          throw std::runtime_error("Failed to read the size of the message.");
+        }
       }
 
-      size = ntohl(size); // Network to host byte order
+      size = ntohl(size);
       std::vector<char> buffer(size);
-
-      if (recv(client_sock, buffer.data(), size, MSG_WAITALL) != size)
+      result = recv(client_sock, buffer.data(), size, MSG_WAITALL);
+      if (result != size)
       {
         throw std::runtime_error("Failed to read the full message.");
       }
@@ -400,10 +432,10 @@ void handle_client(int client_sock)
   }
   catch (const std::exception &e)
   {
-    std::cerr << "Exception: " << e.what() << " - Likely client disconnected. Cleaning up session..." << std::endl;
+    std::cerr << "Exception in client thread: " << e.what() << " - Cleaning up session." << std::endl;
     if (registered)
     {
-      unregister_user(client_sock);
+      unregister_user(client_sock, true);
     }
   }
 
