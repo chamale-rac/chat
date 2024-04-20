@@ -8,10 +8,36 @@
 #include <thread>
 #include <vector>
 #include <atomic>
+#include <deque>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
+
+#define RED "\x1b[31m"
+#define GREEN "\x1b[32m"
+#define YELLOW "\x1b[33m"
+#define BLUE "\x1b[34m"
+#define MAGENTA "\x1b[35m"
+#define CYAN "\x1b[36m"
+#define RESET "\x1b[0m"
+
+std::atomic<bool> running{true};
+std::atomic<bool> in_input_mode{false};
+std::atomic<bool> waiting_response{false};
+std::mutex cout_mutex;
+std::deque<std::string> message_buffer; // Buffer for messages received during input mode
 
 // TODO: add identifier uuid to each request and response to match them
 
-std::atomic<bool> running{true};
+void flush_message_buffer()
+{
+  std::lock_guard<std::mutex> lock(cout_mutex);
+  while (!message_buffer.empty())
+  {
+    std::cout << message_buffer.front() << std::endl;
+    message_buffer.pop_front();
+  }
+}
 
 // Helper function to send a protobuf message with size prepended, is practically a copy of the code in the server
 void send_proto_message(int sock, const google::protobuf::Message &message)
@@ -49,61 +75,59 @@ void messageListener(int sock)
     chat::Response response;
     if (read_proto_message(sock, response))
     {
+      std::lock_guard<std::mutex> lock(cout_mutex);
+      std::string message;
       if (response.status_code() != chat::StatusCode::OK)
       {
-        std::cerr << "Server error: " << response.message() << "(" << response.operation() << ")" << std::endl; // TODO: add more details
-        break;
+        message = RED "Server error: " + response.message() + "(" + std::to_string(response.operation()) + ")" RESET;
+      }
+      else
+      {
+        switch (response.operation())
+        {
+        case chat::Operation::INCOMING_MESSAGE:
+          if (response.has_incoming_message())
+          {
+            const auto &msg = response.incoming_message();
+            std::string type = (msg.type() == chat::MessageType::BROADCAST) ? "Broadcast" : "Direct";
+            message = BLUE + type + " message from " + msg.sender() + ": " + msg.content() + RESET;
+          }
+          break;
+        case chat::Operation::GET_USERS:
+          if (response.has_user_list())
+          {
+            const auto &user_list = response.user_list();
+            message = std::string(MAGENTA) + "Users online: ";
+            for (const auto &user : user_list.users())
+            {
+              message += user.username() + " ";
+            }
+            message += RESET;
+          }
+          break;
+        default:
+          message = "Server response: " + response.message();
+          break;
+        }
       }
 
-      switch (response.operation())
+      if (response.operation() == chat::Operation::INCOMING_MESSAGE)
       {
-      case chat::Operation::INCOMING_MESSAGE:
-        if (response.has_incoming_message())
+        message_buffer.push_back(message);
+      }
+      else
+      {
+        std::cout << message << std::endl;
+
+        if (waiting_response)
         {
-          const auto &msg = response.incoming_message();
-          if (msg.type() == chat::MessageType::BROADCAST)
-          {
-            std::cout << "Broadcast message from " << msg.sender() << ": " << msg.content() << std::endl;
-          }
-          else if (msg.type() == chat::MessageType::DIRECT)
-          {
-            std::cout << "Direct message from " << msg.sender() << ": " << msg.content() << std::endl;
-          }
+          waiting_response = false;
         }
-        break;
-      case chat::Operation::GET_USERS:
-        std::cout << "Server response: " << "GET_USERS\n"
-                  << std::endl;
-        if (response.has_user_list())
-        {
-          std::cout << "Server response: " << "GET_USERS RR\n"
-                    << std::endl;
-          const auto &user_list = response.user_list();
-          if (user_list.type() == chat::UserListType::ALL)
-          {
-            std::cout << "Users online: ";
-          }
-          else if (user_list.type() == chat::UserListType::SINGLE)
-          {
-            std::cout << "User info: ";
-          }
-          for (const auto &user : user_list.users())
-          {
-            std::cout << "GET_USERS RR RR\n"
-                      << std::endl;
-            std::cout << user.username() << " ";
-          }
-        }
-        break;
-      default:
-        // Just cout the message for now
-        std::cout << "Server response: " << response.message() << std::endl;
-        break;
       }
     }
     else
     {
-      std::cerr << "Failed to receive a message or connection closed by server." << std::endl;
+      std::cerr << RED "Failed to receive a message or connection closed by server." RESET << std::endl;
       break;
     }
   }
@@ -111,16 +135,11 @@ void messageListener(int sock)
 
 void printMenu()
 {
-  std::cout << "1. Broadcast Message\n";
-  std::cout << "2. Send Direct Message\n";
-  std::cout << "3. Change Status\n";
-  std::cout << "4. List Users\n";
-  std::cout << "5. Get User Info\n";
-  std::cout << "6. Help\n";
-  std::cout << "7. Exit\n";
+  std::lock_guard<std::mutex> lock(cout_mutex);
+  std::cout << GREEN << "1. Broadcast Message\n2. Send Direct Message\n3. Change Status\n4. List Users\n5. Get User Info\n6. Help\n7. Exit\n"
+            << RESET;
   std::cout << "Enter choice: ";
 }
-
 void handleBroadcastMessage(int sock)
 {
   std::string message;
@@ -293,6 +312,8 @@ int main(int argc, char *argv[])
   do
   {
     printMenu();
+    in_input_mode = true; // Set input mode to true to suppress messageListener output
+    waiting_response = true;
     std::cin >> choice;
     switch (choice)
     {
@@ -322,6 +343,7 @@ int main(int argc, char *argv[])
       {
         listener.join(); // Wait for the listener thread to finish
       }
+      waiting_response = false;
       // 2. Send the unregister request
       handleUnregisterUser(sock, username);
       // 3. Wait for the server to respond
@@ -331,14 +353,21 @@ int main(int argc, char *argv[])
       }
       else
       {
-        std::cerr << "Failed to receive unregistration confirmation." << std::endl;
+        std::cerr << "Connection closed." << std::endl;
       }
       std::cout << "Exiting..." << std::endl;
       break;
     default:
       std::cout << "Invalid choice, please try again.\n";
+      waiting_response = false;
       break;
     }
+    in_input_mode = false; // Reset input mode after action is handled
+    while (waiting_response)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    flush_message_buffer();
   } while (choice != 7);
 
   // If by some reason the listener thread is still running, stop it

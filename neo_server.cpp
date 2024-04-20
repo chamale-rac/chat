@@ -57,7 +57,7 @@ void send_proto_message(int client_sock, const google::protobuf::Message &messag
 /**
  * REGISTER_USER main function
  */
-void handle_registration(const chat::Request &request, int client_sock, chat::Operation operation)
+bool handle_registration(const chat::Request &request, int client_sock, chat::Operation operation)
 {
   auto user_request = request.register_user();
   const auto &username = user_request.username();
@@ -66,6 +66,7 @@ void handle_registration(const chat::Request &request, int client_sock, chat::Op
 
   chat::Response response;
   response.set_operation(operation);
+  bool registered = false;
 
   if (user_details.find(username) == user_details.end()) //
   {
@@ -76,14 +77,19 @@ void handle_registration(const chat::Request &request, int client_sock, chat::Op
 
     response.set_message("User registered successfully.");
     response.set_status_code(chat::StatusCode::OK);
+
+    registered = true;
   }
   else
   {
     response.set_message("Username is already taken.");
     response.set_status_code(chat::StatusCode::BAD_REQUEST);
+
+    registered = false;
   }
 
   send_proto_message(client_sock, response);
+  return registered;
 }
 
 /**
@@ -358,9 +364,14 @@ void handle_client(int client_sock)
 
         if (!registered)
         {
-          handle_registration(request, client_sock, chat::Operation::REGISTER_USER);
-          username = request.register_user().username();
-          registered = true;
+          const bool got_registered = handle_registration(request, client_sock, chat::Operation::REGISTER_USER);
+          if (got_registered)
+          {
+            std::cout << "User registered successfully." << std::endl;
+
+            username = request.register_user().username();
+            registered = true;
+          }
         }
         else
         {
