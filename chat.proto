@@ -40,6 +40,11 @@ message IncomingMessageResponse {
     MessageType type = 3;
 }
 
+enum UserListType {
+    ALL = 0;  // Fetch all connected users.
+    SINGLE = 1;  // Fetch details for a single user.
+}
+
 // UserListRequest is used to fetch a list of currently connected users.
 message UserListRequest {
     string username = 1;  // Specific username to fetch details for. If empty, fetches all connected users.
@@ -48,6 +53,7 @@ message UserListRequest {
 // UserListResponse returns a list of users.
 message UserListResponse {
     repeated User users = 1;  // List of users meeting the criteria specified in UserListRequest.
+    UserListType type = 2;
 }
 
 // UpdateStatusRequest is used to change the status of a user.

@@ -18,7 +18,7 @@ std::mutex clients_mutex;
 std::map<int, std::string> client_sessions;          // Maps client socket to username
 std::map<std::string, std::string> user_details;     // Maps username to IP address
 std::map<std::string, chat::UserStatus> user_status; // Maps username to status
-// std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking
+// std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking TODO: Auto Status Modification
 
 // Helper function to send a protobuf message to a socket
 void send_proto_message(int client_sock, const google::protobuf::Message &message)
@@ -135,6 +135,7 @@ void handle_get_users(const chat::Request &request, int client_sock, chat::Opera
   if (username.empty())
   {
     // Return all connected users
+    user_list_response.set_type(chat::UserListType::ALL);
     for (const auto &user : user_details)
     {
       add_user_to_response(user, user_list_response);
@@ -144,6 +145,7 @@ void handle_get_users(const chat::Request &request, int client_sock, chat::Opera
   }
   else
   {
+    user_list_response.set_type(chat::UserListType::SINGLE);
     // Return only the specified user
     auto it = user_details.find(username);
     if (it != user_details.end())

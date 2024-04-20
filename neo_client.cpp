@@ -5,6 +5,13 @@
 #include <unistd.h>
 #include <cstring>
 #include <string>
+#include <thread>
+#include <vector>
+#include <atomic>
+
+// TODO: add identifier uuid to each request and response to match them
+
+std::atomic<bool> running{true};
 
 // Helper function to send a protobuf message with size prepended, is practically a copy of the code in the server
 void send_proto_message(int sock, const google::protobuf::Message &message)
@@ -35,6 +42,67 @@ bool read_proto_message(int sock, google::protobuf::Message &message)
   return false;
 }
 
+void messageListener(int sock)
+{
+  while (running)
+  {
+    chat::Response response;
+    if (read_proto_message(sock, response))
+    {
+      if (response.status_code() != chat::StatusCode::OK)
+      {
+        std::cerr << "Server error: " << response.message() << std::endl; // TODO: add more details
+        break;
+      }
+
+      switch (response.operation())
+      {
+      case chat::Operation::INCOMING_MESSAGE:
+        if (response.has_incoming_message())
+        {
+          const auto &msg = response.incoming_message();
+          if (msg.type() == chat::MessageType::BROADCAST)
+          {
+            std::cout << "Broadcast message from " << msg.sender() << ": " << msg.content() << std::endl;
+          }
+          else if (msg.type() == chat::MessageType::DIRECT)
+          {
+            std::cout << "Direct message from " << msg.sender() << ": " << msg.content() << std::endl;
+          }
+        }
+        break;
+      case chat::Operation::GET_USERS:
+        if (response.has_user_list())
+        {
+          const auto &user_list = response.user_list();
+          if (user_list.type() == chat::UserListType::ALL)
+          {
+            std::cout << "Users online: ";
+          }
+          else if (user_list.type() == chat::UserListType::SINGLE)
+          {
+            std::cout << "User info: ";
+          }
+          for (const auto &user : user_list.users())
+          {
+            std::cout << user.username() << " ";
+          }
+        }
+        break;
+      default:
+        // Just cout the message for now
+        std::cout << "Server response: " << response.message() << std::endl;
+        break;
+      }
+    }
+    else
+    {
+      std::cerr << "Failed to receive a message or connection closed by server." << std::endl;
+      break;
+    }
+  }
+}
+
 void printMenu()
 {
   std::cout << "1. Broadcast Message\n";
@@ -45,6 +113,114 @@ void printMenu()
   std::cout << "6. Help\n";
   std::cout << "7. Exit\n";
   std::cout << "Enter choice: ";
+}
+
+void handleBroadcastMessage(int sock)
+{
+  std::string message;
+  std::cout << "Enter message to broadcast: ";
+  std::cin.ignore(); // Clear the newline character from the input buffer
+  std::getline(std::cin, message);
+
+  chat::Request request;
+  request.set_operation(chat::Operation::SEND_MESSAGE);
+  auto *msg = request.mutable_send_message();
+  msg->set_content(message);
+
+  send_proto_message(sock, request);
+}
+
+void handleDirectMessage(int sock)
+{
+  std::string recipient;
+  std::cout << "Enter recipient username: ";
+  std::cin >> recipient;
+
+  std::string message;
+  std::cout << "Enter message to send: ";
+  std::cin.ignore(); // Clear the newline character from the input buffer
+  std::getline(std::cin, message);
+
+  chat::Request request;
+  request.set_operation(chat::Operation::SEND_MESSAGE);
+  auto *msg = request.mutable_send_message();
+  msg->set_content(message);
+  msg->set_recipient(recipient);
+
+  send_proto_message(sock, request);
+}
+
+void handleChangeStatus(int sock)
+{
+  int status;
+  std::cout << "Select status - 1: Online, 2: Busy, 3: Offline: ";
+  std::cin >> status;
+
+  chat::Request request;
+  request.set_operation(chat::Operation::UPDATE_STATUS);
+  auto *status_request = request.mutable_update_status();
+  switch (status)
+  {
+  case 1:
+    status_request->set_new_status(chat::UserStatus::ONLINE);
+    break;
+  case 2:
+    status_request->set_new_status(chat::UserStatus::BUSY);
+    break;
+  case 3:
+    status_request->set_new_status(chat::UserStatus::OFFLINE);
+    break;
+  default:
+    std::cout << "Invalid status.\n";
+    return;
+  }
+
+  send_proto_message(sock, request);
+}
+
+void handleListUsers(int sock)
+{
+  chat::Request request;
+  request.set_operation(chat::Operation::GET_USERS);
+  auto *user_list = request.mutable_get_users();
+
+  send_proto_message(sock, request);
+}
+
+void handleGetUserInfo(int sock)
+{
+  std::string username;
+  std::cout << "Enter username to get info: ";
+  std::cin >> username;
+
+  chat::Request request;
+  request.set_operation(chat::Operation::GET_USERS);
+  auto *user_list = request.mutable_get_users();
+  user_list->set_username(username);
+
+  send_proto_message(sock, request);
+}
+
+void displayHelp()
+{
+  std::cout << "Help - List of commands\n";
+  std::cout << "1. Broadcast Message: Send a message to all users\n";
+  std::cout << "2. Send Direct Message: Send a message to a specific user\n";
+  std::cout << "3. Change Status: Change your status\n";
+  std::cout << "4. List Users: List all users online\n";
+  std::cout << "5. Get User Info: Get information about a specific user\n";
+  std::cout << "6. Help: Display this help message\n";
+  std::cout << "7. Exit: Exit the program\n";
+}
+
+void handleUnregisterUser(int sock, const std::string &username)
+{
+  chat::Request request;
+  request.set_operation(chat::Operation::UNREGISTER_USER);
+  auto *unregister_user = request.mutable_unregister_user();
+  unregister_user->set_username(username);
+
+  send_proto_message(sock, request);
 }
 
 int main(int argc, char *argv[])
@@ -104,6 +280,9 @@ int main(int argc, char *argv[])
     return -1;
   }
 
+  std::thread listener(messageListener, sock);
+  listener.detach();
+
   int choice = 0;
   do
   {
@@ -112,25 +291,43 @@ int main(int argc, char *argv[])
     switch (choice)
     {
     case 1:
-      // Handle broadcasting a message
+      handleBroadcastMessage(sock);
       break;
     case 2:
-      // Handle sending a direct message
+      handleDirectMessage(sock);
       break;
     case 3:
-      // Handle changing user status
+      handleChangeStatus(sock);
       break;
     case 4:
-      // Handle listing users
+      handleListUsers(sock);
       break;
     case 5:
-      // Handle fetching user info
+      handleGetUserInfo(sock);
       break;
     case 6:
-      // Display help
+      displayHelp();
       break;
     case 7:
-      // Exit the application
+      // This is the exit option and special handling is required
+      // 1. Stop running the listener thread
+      running = false;
+      if (listener.joinable())
+      {
+        listener.join(); // Wait for the listener thread to finish
+      }
+      // 2. Send the unregister request
+      handleUnregisterUser(sock, username);
+      // 3. Wait for the server to respond
+      if (read_proto_message(sock, response))
+      {
+        std::cout << "Server response: " << response.message() << std::endl;
+      }
+      else
+      {
+        std::cerr << "Failed to receive unregistration confirmation." << std::endl;
+      }
+      std::cout << "Exiting..." << std::endl;
       break;
     default:
       std::cout << "Invalid choice, please try again.\n";
@@ -138,6 +335,12 @@ int main(int argc, char *argv[])
     }
   } while (choice != 7);
 
+  // If by some reason the listener thread is still running, stop it
+  running = false;
+  if (listener.joinable())
+  {
+    listener.join(); // Wait for the listener thread to finish
+  }
   // Close the socket
   close(sock);
 

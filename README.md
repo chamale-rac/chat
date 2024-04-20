@@ -8,7 +8,7 @@ https://grpc.io/docs/protoc-installation/
 
 sudo apt-get install libprotobuf-dev protobuf-compiler
 
-## Server
+## Compilation
 
 g++ -o chat_server neo_server.cpp chat.pb.cc -lpthread -lprotobuf
 
