@@ -11,6 +11,8 @@
 #include <thread>
 #include <chrono>
 
+#include <google/protobuf/io/zero_copy_stream_impl.h> // For ArrayInputStream and CodedInputStream && Cause error using docker
+
 #include <errno.h> // For errno, EPIPE
 #include <cstring> // For strerror
 

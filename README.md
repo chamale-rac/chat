@@ -6,6 +6,8 @@ Creating a Chat System for the Operating Systems Course
 ### Installing protoc
 https://grpc.io/docs/protoc-installation/
 
+sudo apt install -y protobuf-compiler
+
 sudo apt-get install libprotobuf-dev protobuf-compiler
 
 ## Compilation
