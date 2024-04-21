@@ -142,7 +142,8 @@ void messageListener(int sock)
     }
     else
     {
-      std::cerr << RED "Failed to receive a message or connection closed by server." RESET << std::endl;
+      if (!waiting_response)
+        std::cerr << RED "Failed to receive a message or connection closed by server." RESET << std::endl;
       break;
     }
   }
@@ -312,7 +313,6 @@ int main(int argc, char *argv[])
   request.set_operation(chat::Operation::REGISTER_USER);
   auto *new_user = request.mutable_register_user();
   new_user->set_username(username);
-  new_user->set_ip_address(server_ip);
 
   send_proto_message(sock, request);
 

@@ -19,7 +19,6 @@ message User {
 // NewUserRequest is used to register a new user on the chat server.
 message NewUserRequest {
     string username = 1;  // Desired username for the new user. Must be unique across all users.
-    string ip_address = 2;  // IP address from which the user is registering.
 }
 
 // MessageRequest represents a request to send a chat message.
@@ -86,7 +85,8 @@ message Request {
     }
 }
 
-enum StatusCode {
+// Consider reduce to just 200, 400 and maybe 500
+enum StatusCode { 
     UNKNOWN_STATUS = 0;              // Default value, should not be used in normal operations
     OK = 200;                        // Request has succeeded
     BAD_REQUEST = 400;               // Request cannot be fulfilled due to bad syntax (este podría ser el utilizado general)

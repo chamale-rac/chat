@@ -70,8 +70,24 @@ bool handle_registration(const chat::Request &request, int client_sock, chat::Op
 
   if (user_details.find(username) == user_details.end()) //
   {
+    // Get client IP
+    struct sockaddr_in addr;
+    socklen_t addr_size = sizeof(struct sockaddr_in);
+    int res = getpeername(client_sock, (struct sockaddr *)&addr, &addr_size);
+    std::string ip_str;
+    if (res != -1)
+    {
+      ip_str = inet_ntoa(addr.sin_addr);
+    }
+    else
+    {
+      ip_str = "Unknown IP"; // TODO: this case is needed to be handled -> not allow to register
+    }
+
+    std::cout << "Registering user: " << username << " with IP: " << ip_str << std::endl;
+
     // Register user
-    user_details.emplace(username, user_request.ip_address());
+    user_details.emplace(username, ip_str);
     user_status.emplace(username, chat::UserStatus::ONLINE); // Set status to online
     client_sessions.emplace(client_sock, username);          // Link socket to username
 
