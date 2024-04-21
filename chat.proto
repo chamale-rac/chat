@@ -12,7 +12,6 @@ enum UserStatus {
 // User represents the essential information about a chat user.
 message User {
     string username = 1;  // Unique identifier for the user.
-    string ip_address = 2;  // IP address of the user, used for server management, not exposed to other clients.
     UserStatus status = 3;  // Current status of the user, indicating availability.
 }
 

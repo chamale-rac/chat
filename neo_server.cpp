@@ -115,7 +115,6 @@ void add_user_to_response(const std::pair<std::string, std::string> &user, chat:
 {
   chat::User *user_proto = response.add_users();
   user_proto->set_username(user.first);
-  user_proto->set_ip_address(user.second);
   user_proto->set_status(user_status[user.first]);
 }
 
