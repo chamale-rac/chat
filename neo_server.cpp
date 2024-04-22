@@ -11,8 +11,6 @@
 #include <thread>
 #include <chrono>
 
-#include <google/protobuf/io/zero_copy_stream_impl.h> // For ArrayInputStream and CodedInputStream && Cause error using docker
-
 #include <errno.h> // For errno, EPIPE
 #include <cstring> // For strerror
 
@@ -180,7 +178,7 @@ void handle_get_users(const chat::Request &request, int client_sock, chat::Opera
     {
       std::cout << "User not found: " << request.get_users().username() << std::endl;
       response.set_message("User not found.");
-      response.set_status_code(chat::StatusCode::NOT_FOUND);
+      response.set_status_code(chat::StatusCode::BAD_REQUEST);
     }
   }
 
@@ -287,7 +285,7 @@ void handle_send_message(const chat::Request &request, int client_sock, chat::Op
     else
     {
       response_to_sender.set_message("Recipient not found.");
-      response_to_sender.set_status_code(chat::StatusCode::NOT_FOUND);
+      response_to_sender.set_status_code(chat::StatusCode::BAD_REQUEST);
       send_proto_message(client_sock, response_to_sender);
     }
   }
@@ -345,7 +343,7 @@ void unregister_user(int client_sock, bool forced = false)
   {
     // User not found or already unregistered, send error response
     response.set_message("User not found or already unregistered.");
-    response.set_status_code(chat::StatusCode::NOT_FOUND);
+    response.set_status_code(chat::StatusCode::BAD_REQUEST);
   }
 
   if (!forced)
