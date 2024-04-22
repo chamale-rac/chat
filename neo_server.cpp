@@ -23,37 +23,57 @@ std::map<std::string, chat::UserStatus> user_status; // Maps username to status
 // std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking TODO: Auto Status Modification
 
 // Helper function to send a protobuf message to a socket
-void send_proto_message(int client_sock, const google::protobuf::Message &message)
+void send_proto_message(int sock, const google::protobuf::Message &message)
 {
-  std::string buffer;
-  message.SerializeToString(&buffer);
+  std::string output;
+  message.SerializeToString(&output);
 
-  uint32_t size = htonl(buffer.size()); // Ensure network byte order for the size
+  uint32_t size = htonl(output.size()); // Convert size to network byte order
+  std::vector<char> buffer(sizeof(size) + output.size());
+  memcpy(buffer.data(), &size, sizeof(size));
+  memcpy(buffer.data() + sizeof(size), output.data(), output.size());
 
-  // Ignore SIGPIPE to prevent termination when writing to a closed socket
-  signal(SIGPIPE, SIG_IGN);
-
-  // Wrap the sending operations in a try-catch block to handle possible errors
-  try
+  // Send the complete buffer (size + message) in one go
+  ssize_t sentBytes = send(sock, buffer.data(), buffer.size(), 0);
+  if (sentBytes < 0)
   {
-    ssize_t sent_bytes = send(client_sock, &size, sizeof(size), MSG_NOSIGNAL);
-    if (sent_bytes != sizeof(size))
-    {
-      std::cerr << "Failed to send message size: " << strerror(errno) << std::endl;
-      return; // Early exit on failure
-    }
-
-    sent_bytes = send(client_sock, buffer.data(), buffer.size(), MSG_NOSIGNAL);
-    if (sent_bytes != static_cast<ssize_t>(buffer.size()))
-    {
-      std::cerr << "Failed to send full message: " << strerror(errno) << std::endl;
-      return; // Early exit on failure
-    }
+    perror("send failed");
+    // Handle error appropriately
   }
-  catch (const std::exception &e)
+  else if (sentBytes < buffer.size())
   {
-    std::cerr << "Exception while sending message: " << e.what() << std::endl;
+    std::cerr << "Not all data was sent. Sent " << sentBytes << " of " << buffer.size() << " bytes." << std::endl;
+    // Optionally retry sending the rest or handle partial send
   }
+}
+
+bool read_proto_message(int sock, google::protobuf::Message &message)
+{
+  // First, attempt to read the size of the message
+  uint32_t size = 0;
+  int headerSize = sizeof(size);
+
+  // Use MSG_PEEK to determine the total size needed for the full message
+  recv(sock, &size, headerSize, MSG_PEEK);
+  size = ntohl(size); // Convert from network byte order to host byte order after peeking
+
+  // Now allocate a buffer large enough for the size header and the message
+  std::vector<char> buffer(headerSize + size);
+
+  // Read the complete buffer (size header + message) in one go
+  int totalBytesRead = 0;
+  while (totalBytesRead < buffer.size())
+  {
+    int bytesRead = recv(sock, buffer.data() + totalBytesRead, buffer.size() - totalBytesRead, MSG_WAITALL);
+    if (bytesRead <= 0)
+    {
+      return false; // Handle errors or disconnection
+    }
+    totalBytesRead += bytesRead;
+  }
+
+  // Deserialize the message from the buffer, skipping the first 4 bytes which are the size
+  return message.ParseFromArray(buffer.data() + headerSize, buffer.size() - headerSize);
 }
 
 /**
@@ -344,34 +364,11 @@ void handle_client(int client_sock)
   {
     while (running)
     {
-      uint32_t size;
-      ssize_t result = recv(client_sock, &size, sizeof(size), MSG_WAITALL);
-      if (result != sizeof(size))
-      {
-        if (result == 0)
-        {
-          throw std::runtime_error("Client closed the connection.");
-        }
-        else
-        {
-          throw std::runtime_error("Failed to read the size of the message.");
-        }
-      }
-
-      size = ntohl(size);
-      std::vector<char> buffer(size);
-      result = recv(client_sock, buffer.data(), size, MSG_WAITALL);
-      if (result != size)
-      {
-        throw std::runtime_error("Failed to read the full message.");
-      }
-
       chat::Request request;
-      google::protobuf::io::ArrayInputStream ais(buffer.data(), size);
-      google::protobuf::io::CodedInputStream coded_input(&ais);
-      if (!request.ParseFromCodedStream(&coded_input))
+      if (read_proto_message(client_sock, request) == false)
       {
-        throw std::runtime_error("Failed to parse the incoming request.");
+        std::cerr << "Failed to read message from client. Closing connection." << std::endl;
+        break; // TODO: handle different.
       }
 
       // Handling different types of requests

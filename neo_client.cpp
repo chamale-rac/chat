@@ -47,26 +47,51 @@ void send_proto_message(int sock, const google::protobuf::Message &message)
   message.SerializeToString(&output);
 
   uint32_t size = htonl(output.size()); // Convert size to network byte order
+  std::vector<char> buffer(sizeof(size) + output.size());
+  memcpy(buffer.data(), &size, sizeof(size));
+  memcpy(buffer.data() + sizeof(size), output.data(), output.size());
 
-  send(sock, &size, sizeof(size), 0);          // Send the size of the ProtoBuf message first
-  send(sock, output.data(), output.size(), 0); // Send the actual ProtoBuf message
+  // Send the complete buffer (size + message) in one go
+  ssize_t sentBytes = send(sock, buffer.data(), buffer.size(), 0);
+  if (sentBytes < 0)
+  {
+    perror("send failed");
+    // Handle error appropriately
+  }
+  else if (sentBytes < buffer.size())
+  {
+    std::cerr << "Not all data was sent. Sent " << sentBytes << " of " << buffer.size() << " bytes." << std::endl;
+    // Optionally retry sending the rest or handle partial send
+  }
 }
 
 bool read_proto_message(int sock, google::protobuf::Message &message)
 {
+  // First, attempt to read the size of the message
   uint32_t size = 0;
-  int length = recv(sock, &size, sizeof(size), MSG_WAITALL); // Read the size first
-  if (length == sizeof(size))
+  int headerSize = sizeof(size);
+
+  // Use MSG_PEEK to determine the total size needed for the full message
+  recv(sock, &size, headerSize, MSG_PEEK);
+  size = ntohl(size); // Convert from network byte order to host byte order after peeking
+
+  // Now allocate a buffer large enough for the size header and the message
+  std::vector<char> buffer(headerSize + size);
+
+  // Read the complete buffer (size header + message) in one go
+  int totalBytesRead = 0;
+  while (totalBytesRead < buffer.size())
   {
-    size = ntohl(size); // Convert from network byte order to host byte order
-    std::vector<char> buffer(size);
-    int bytesRead = recv(sock, buffer.data(), size, MSG_WAITALL); // Read the message
-    if (bytesRead > 0)
+    int bytesRead = recv(sock, buffer.data() + totalBytesRead, buffer.size() - totalBytesRead, MSG_WAITALL);
+    if (bytesRead <= 0)
     {
-      return message.ParseFromArray(buffer.data(), bytesRead);
+      return false; // Handle errors or disconnection
     }
+    totalBytesRead += bytesRead;
   }
-  return false;
+
+  // Deserialize the message from the buffer, skipping the first 4 bytes which are the size
+  return message.ParseFromArray(buffer.data() + headerSize, buffer.size() - headerSize);
 }
 
 void messageListener(int sock)
