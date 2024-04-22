@@ -1,4 +1,5 @@
-#include "chat.pb.h"
+#include "../protocols/proto/chat.pb.h"
+#include "../protocols/message/message.h"
 #include <iostream>
 #include <string>
 #include <map>
@@ -19,60 +20,6 @@ std::map<int, std::string> client_sessions;          // Maps client socket to us
 std::map<std::string, std::string> user_details;     // Maps username to IP address
 std::map<std::string, chat::UserStatus> user_status; // Maps username to status
 // std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking TODO: Auto Status Modification
-
-// Helper function to send a protobuf message to a socket
-void send_proto_message(int sock, const google::protobuf::Message &message)
-{
-  std::string output;
-  message.SerializeToString(&output);
-
-  uint32_t size = htonl(output.size()); // Convert size to network byte order
-  std::vector<char> buffer(sizeof(size) + output.size());
-  memcpy(buffer.data(), &size, sizeof(size));
-  memcpy(buffer.data() + sizeof(size), output.data(), output.size());
-
-  // Send the complete buffer (size + message) in one go
-  ssize_t sentBytes = send(sock, buffer.data(), buffer.size(), 0);
-  if (sentBytes < 0)
-  {
-    perror("send failed");
-    // Handle error appropriately
-  }
-  else if (sentBytes < buffer.size())
-  {
-    std::cerr << "Not all data was sent. Sent " << sentBytes << " of " << buffer.size() << " bytes." << std::endl;
-    // Optionally retry sending the rest or handle partial send
-  }
-}
-
-bool read_proto_message(int sock, google::protobuf::Message &message)
-{
-  // First, attempt to read the size of the message
-  uint32_t size = 0;
-  int headerSize = sizeof(size);
-
-  // Use MSG_PEEK to determine the total size needed for the full message
-  recv(sock, &size, headerSize, MSG_PEEK);
-  size = ntohl(size); // Convert from network byte order to host byte order after peeking
-
-  // Now allocate a buffer large enough for the size header and the message
-  std::vector<char> buffer(headerSize + size);
-
-  // Read the complete buffer (size header + message) in one go
-  int totalBytesRead = 0;
-  while (totalBytesRead < buffer.size())
-  {
-    int bytesRead = recv(sock, buffer.data() + totalBytesRead, buffer.size() - totalBytesRead, MSG_WAITALL);
-    if (bytesRead <= 0)
-    {
-      return false; // Handle errors or disconnection
-    }
-    totalBytesRead += bytesRead;
-  }
-
-  // Deserialize the message from the buffer, skipping the first 4 bytes which are the size
-  return message.ParseFromArray(buffer.data() + headerSize, buffer.size() - headerSize);
-}
 
 /**
  * REGISTER_USER main function
@@ -124,7 +71,7 @@ bool handle_registration(const chat::Request &request, int client_sock, chat::Op
     registered = false;
   }
 
-  send_proto_message(client_sock, response);
+  SPM(client_sock, response);
   return registered;
 }
 
@@ -185,7 +132,7 @@ void handle_get_users(const chat::Request &request, int client_sock, chat::Opera
   // Copy the user list to the response
   response.mutable_user_list()->CopyFrom(user_list_response);
   // Send the complete response
-  send_proto_message(client_sock, response);
+  SPM(client_sock, response);
 }
 /**
  * SEND_MESSAGE auxiliary function
@@ -216,14 +163,14 @@ void send_broadcast_message(const chat::IncomingMessageResponse &message_respons
       response_to_recipient.set_message("Broadcast message incoming.");
       response_to_recipient.set_status_code(chat::StatusCode::OK);
       response_to_recipient.mutable_incoming_message()->CopyFrom(message_response);
-      send_proto_message(session.first, response_to_recipient);
+      SPM(session.first, response_to_recipient);
     }
   }
 
   chat::Response response_to_sender;
   response_to_sender.set_message("Broadcast message sent successfully.");
   response_to_sender.set_status_code(chat::StatusCode::OK);
-  send_proto_message(client_sock, response_to_sender);
+  SPM(client_sock, response_to_sender);
 }
 
 /**
@@ -252,11 +199,11 @@ void send_direct_message(chat::Response &response_to_sender, chat::Response &res
   response_to_recipient.set_message("Message incoming.");
   response_to_recipient.set_status_code(chat::StatusCode::OK);
   response_to_recipient.mutable_incoming_message()->CopyFrom(message_response);
-  send_proto_message(recipient_sock, response_to_recipient);
+  SPM(recipient_sock, response_to_recipient);
 
   response_to_sender.set_message("Message sent successfully.");
   response_to_sender.set_status_code(chat::StatusCode::OK);
-  send_proto_message(client_sock, response_to_sender);
+  SPM(client_sock, response_to_sender);
 }
 
 /**
@@ -286,7 +233,7 @@ void handle_send_message(const chat::Request &request, int client_sock, chat::Op
     {
       response_to_sender.set_message("Recipient not found.");
       response_to_sender.set_status_code(chat::StatusCode::BAD_REQUEST);
-      send_proto_message(client_sock, response_to_sender);
+      SPM(client_sock, response_to_sender);
     }
   }
 }
@@ -312,7 +259,7 @@ void update_status(const chat::Request &request, int client_sock)
   chat::Response response;
   response.set_message("Status updated successfully."); // Consider replacing this with a constant or a configuration value
   response.set_status_code(chat::StatusCode::OK);
-  send_proto_message(client_sock, response);
+  SPM(client_sock, response);
 }
 
 /**
@@ -348,7 +295,7 @@ void unregister_user(int client_sock, bool forced = false)
 
   if (!forced)
   {
-    send_proto_message(client_sock, response);
+    SPM(client_sock, response);
   }
 }
 
@@ -363,7 +310,7 @@ void handle_client(int client_sock)
     while (running)
     {
       chat::Request request;
-      if (read_proto_message(client_sock, request) == false)
+      if (RPM(client_sock, request) == false)
       {
         std::cerr << "Failed to read message from client. Closing connection." << std::endl;
         break; // TODO: handle different.
@@ -390,7 +337,7 @@ void handle_client(int client_sock)
           chat::Response response;
           response.set_message("User already registered.");
           response.set_status_code(chat::StatusCode::BAD_REQUEST);
-          send_proto_message(client_sock, response);
+          SPM(client_sock, response);
         }
         break;
       case chat::Operation::SEND_MESSAGE:
@@ -403,7 +350,7 @@ void handle_client(int client_sock)
           chat::Response response;
           response.set_message("User not registered.");
           response.set_status_code(chat::StatusCode::BAD_REQUEST);
-          send_proto_message(client_sock, response);
+          SPM(client_sock, response);
         }
         break;
       case chat::Operation::UPDATE_STATUS:
@@ -416,7 +363,7 @@ void handle_client(int client_sock)
           chat::Response response;
           response.set_message("User not registered.");
           response.set_status_code(chat::StatusCode::BAD_REQUEST);
-          send_proto_message(client_sock, response);
+          SPM(client_sock, response);
         }
         break;
       case chat::Operation::GET_USERS:
@@ -429,7 +376,7 @@ void handle_client(int client_sock)
           chat::Response response;
           response.set_message("User not registered.");
           response.set_status_code(chat::StatusCode::BAD_REQUEST);
-          send_proto_message(client_sock, response);
+          SPM(client_sock, response);
         }
         break;
       case chat::Operation::UNREGISTER_USER:
@@ -443,14 +390,14 @@ void handle_client(int client_sock)
           chat::Response response;
           response.set_message("User not registered or username mismatch.");
           response.set_status_code(chat::StatusCode::BAD_REQUEST);
-          send_proto_message(client_sock, response);
+          SPM(client_sock, response);
         }
         break;
       default:
         chat::Response response;
         response.set_message("Unknown request type.");
         response.set_status_code(chat::StatusCode::BAD_REQUEST);
-        send_proto_message(client_sock, response);
+        SPM(client_sock, response);
         break;
       }
     }

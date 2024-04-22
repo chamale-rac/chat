@@ -1,4 +1,5 @@
-#include "chat.pb.h" // Include the generated protobuf header
+#include "../../protocols/proto/chat.pb.h" // Include the generated protobuf header
+#include "../../protocols/message/message.h"
 #include <iostream>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -40,66 +41,12 @@ void flush_message_buffer()
   }
 }
 
-// Helper function to send a protobuf message with size prepended, is practically a copy of the code in the server
-void send_proto_message(int sock, const google::protobuf::Message &message)
-{
-  std::string output;
-  message.SerializeToString(&output);
-
-  uint32_t size = htonl(output.size()); // Convert size to network byte order
-  std::vector<char> buffer(sizeof(size) + output.size());
-  memcpy(buffer.data(), &size, sizeof(size));
-  memcpy(buffer.data() + sizeof(size), output.data(), output.size());
-
-  // Send the complete buffer (size + message) in one go
-  ssize_t sentBytes = send(sock, buffer.data(), buffer.size(), 0);
-  if (sentBytes < 0)
-  {
-    perror("send failed");
-    // Handle error appropriately
-  }
-  else if (sentBytes < buffer.size())
-  {
-    std::cerr << "Not all data was sent. Sent " << sentBytes << " of " << buffer.size() << " bytes." << std::endl;
-    // Optionally retry sending the rest or handle partial send
-  }
-}
-
-bool read_proto_message(int sock, google::protobuf::Message &message)
-{
-  // First, attempt to read the size of the message
-  uint32_t size = 0;
-  int headerSize = sizeof(size);
-
-  // Use MSG_PEEK to determine the total size needed for the full message
-  recv(sock, &size, headerSize, MSG_PEEK);
-  size = ntohl(size); // Convert from network byte order to host byte order after peeking
-
-  // Now allocate a buffer large enough for the size header and the message
-  std::vector<char> buffer(headerSize + size);
-
-  // Read the complete buffer (size header + message) in one go
-  int totalBytesRead = 0;
-  while (totalBytesRead < buffer.size())
-  {
-    int bytesRead = recv(sock, buffer.data() + totalBytesRead, buffer.size() - totalBytesRead, MSG_WAITALL);
-    if (bytesRead <= 0)
-    {
-      return false; // Handle errors or disconnection
-    }
-    totalBytesRead += bytesRead;
-  }
-
-  // Deserialize the message from the buffer, skipping the first 4 bytes which are the size
-  return message.ParseFromArray(buffer.data() + headerSize, buffer.size() - headerSize);
-}
-
 void messageListener(int sock)
 {
   while (running)
   {
     chat::Response response;
-    if (read_proto_message(sock, response))
+    if (RPM(sock, response))
     {
       std::lock_guard<std::mutex> lock(cout_mutex);
       std::string message;
@@ -200,7 +147,7 @@ void handleBroadcastMessage(int sock)
   auto *msg = request.mutable_send_message();
   msg->set_content(message);
 
-  send_proto_message(sock, request);
+  SPM(sock, request);
 }
 
 void handleDirectMessage(int sock)
@@ -220,7 +167,7 @@ void handleDirectMessage(int sock)
   msg->set_content(message);
   msg->set_recipient(recipient);
 
-  send_proto_message(sock, request);
+  SPM(sock, request);
 }
 
 void handleChangeStatus(int sock)
@@ -248,7 +195,7 @@ void handleChangeStatus(int sock)
     return;
   }
 
-  send_proto_message(sock, request);
+  SPM(sock, request);
 }
 
 void handleListUsers(int sock)
@@ -257,7 +204,7 @@ void handleListUsers(int sock)
   request.set_operation(chat::Operation::GET_USERS);
   auto *user_list = request.mutable_get_users();
 
-  send_proto_message(sock, request);
+  SPM(sock, request);
 }
 
 void handleGetUserInfo(int sock)
@@ -271,7 +218,7 @@ void handleGetUserInfo(int sock)
   auto *user_list = request.mutable_get_users();
   user_list->set_username(username);
 
-  send_proto_message(sock, request);
+  SPM(sock, request);
 }
 
 void displayHelp()
@@ -294,7 +241,7 @@ void handleUnregisterUser(int sock, const std::string &username)
   auto *unregister_user = request.mutable_unregister_user();
   unregister_user->set_username(username);
 
-  send_proto_message(sock, request);
+  SPM(sock, request);
 }
 
 int main(int argc, char *argv[])
@@ -339,10 +286,10 @@ int main(int argc, char *argv[])
   auto *new_user = request.mutable_register_user();
   new_user->set_username(username);
 
-  send_proto_message(sock, request);
+  SPM(sock, request);
 
   chat::Response response;
-  if (read_proto_message(sock, response))
+  if (RPM(sock, response))
   {
     std::cout << "Server response: " << response.message() << std::endl;
   }
@@ -405,7 +352,7 @@ int main(int argc, char *argv[])
       // 2. Send the unregister request
       handleUnregisterUser(sock, username);
       // 3. Wait for the server to respond
-      if (read_proto_message(sock, response))
+      if (RPM(sock, response))
       {
         std::cout << "Server response: " << response.message() << std::endl;
       }
