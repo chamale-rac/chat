@@ -14,6 +14,6 @@ sudo apt-get install libprotobuf-dev protobuf-compiler
 
 protoc --cpp_out=. chat.proto 
 
-g++ -o client.exe ./client/console/client.cpp ./protocols/proto/chat.pb.cc ./protocols/message/message.cpp -lprotobuf
+g++ -o chat_client ./client/console/client.cpp ./protocols/proto/chat.pb.cc ./protocols/message/message.cpp -lprotobuf
 
-g++ -o server.exe ./server/server.cpp ./protocols/proto/chat.pb.cc ./protocols/message/message.cpp -lpthread -lprotobuf
+g++ -o chat_server ./server/server.cpp ./protocols/proto/chat.pb.cc ./protocols/message/message.cpp -lpthread -lprotobuf
