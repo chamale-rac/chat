@@ -67,10 +67,6 @@ void handleListUsers(int sock)
 
 void handleGetUserInfo(int sock, std::string username)
 {
-  // std::string username;
-  // std::cout << "Enter username to get info: ";
-  // std::cin >> username;
-
   chat::Request request;
   request.set_operation(chat::Operation::GET_USERS);
   auto *user_list = request.mutable_get_users();
@@ -88,19 +84,15 @@ void verifier(std::string ) {
     return result;
   }
 
-  if (tokens.size() != 3) {
-    std::string result = "Invalid number of arguments";
-    return result;
-  }
-
   // action, recipient, message
-  // status, status
-  // info, username
   std::string action = tokens[0];
   std::string recipient = tokens[1];
-  std::string message = tokens[2];
-
+  if (tokens.size() > 2) {
+    std::string message = tokens[2];
+  }
+  // status, status
   std::string status = tokens[1];
+  // info, username
   std::string username = tokens[1];
 
   if (action == "send") { // send broadcast message
