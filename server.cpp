@@ -1,5 +1,6 @@
 #include "./utils/chat.pb.h" // Include the generated protobuf header
 #include "./utils/message.h"
+#include "./utils/constants.h"
 #include <iostream>
 #include <string>
 #include <map>
@@ -11,7 +12,6 @@
 #include <unistd.h>
 #include <thread>
 #include <chrono>
-
 #include <errno.h> // For errno, EPIPE
 #include <cstring> // For strerror
 
@@ -35,44 +35,60 @@ bool handle_registration(const chat::Request &request, int client_sock, chat::Op
   response.set_operation(operation);
   bool registered = false;
 
-  if (user_details.find(username) == user_details.end()) //
+  // Get client IP
+  struct sockaddr_in addr;
+  socklen_t addr_size = sizeof(struct sockaddr_in);
+  int res = getpeername(client_sock, (struct sockaddr *)&addr, &addr_size);
+  std::string ip_str;
+  if (res != -1)
   {
-    // Get client IP
-    struct sockaddr_in addr;
-    socklen_t addr_size = sizeof(struct sockaddr_in);
-    int res = getpeername(client_sock, (struct sockaddr *)&addr, &addr_size);
-    std::string ip_str;
-    if (res != -1)
-    {
-      ip_str = inet_ntoa(addr.sin_addr);
-    }
-    else
-    {
-      ip_str = "Unknown IP"; // TODO: this case is needed to be handled -> not allow to register
-    }
-
-    std::cout << "Registering user: " << username << " with IP: " << ip_str << std::endl;
-
-    // Register user
-    user_details.emplace(username, ip_str);
-    user_status.emplace(username, chat::UserStatus::ONLINE); // Set status to online
-    client_sessions.emplace(client_sock, username);          // Link socket to username
-
-    response.set_message("User registered successfully.");
-    response.set_status_code(chat::StatusCode::OK);
-
-    registered = true;
+    ip_str = inet_ntoa(addr.sin_addr);
   }
   else
   {
-    response.set_message("Username is already taken.");
+    ip_str = "Unknown IP"; // TODO: this case is needed to be handled -> not allow to register
+    response.set_message("Unable to retrieve IP address.");
     response.set_status_code(chat::StatusCode::BAD_REQUEST);
-
-    registered = false;
+    SPM(client_sock, response);
+    return false;
   }
 
+  // Check for unique IP if HANDLE_UNIQUE_IP is true
+  if (HANDLE_UNIQUE_IP)
+  {
+    for (const auto &entry : user_details)
+    {
+      if (entry.second == ip_str)
+      {
+        response.set_message("IP address is already in use.");
+        response.set_status_code(chat::StatusCode::BAD_REQUEST);
+        SPM(client_sock, response);
+        return false;
+      }
+    }
+  }
+
+  // Check if the username is already taken
+  if (user_details.find(username) != user_details.end())
+  {
+    response.set_message("Username is already taken.");
+    response.set_status_code(chat::StatusCode::BAD_REQUEST);
+    SPM(client_sock, response);
+    return false;
+  }
+
+  std::cout << "Registering user: " << username << " with IP: " << ip_str << std::endl;
+
+  // Register user
+  user_details.emplace(username, ip_str);
+  user_status.emplace(username, chat::UserStatus::ONLINE); // Set status to online
+  client_sessions.emplace(client_sock, username);          // Link socket to username
+
+  response.set_message("User registered successfully.");
+  response.set_status_code(chat::StatusCode::OK);
+
   SPM(client_sock, response);
-  return registered;
+  return true;
 }
 
 /**
