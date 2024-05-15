@@ -1,5 +1,5 @@
-#include "../../protocols/proto/chat.pb.h" // Include the generated protobuf header
-#include "../../protocols/message/message.h"
+#include "./utils/chat.pb.h" // Include the generated protobuf header
+#include "./utils/utils.h"
 #include <iostream>
 #include <sys/socket.h>
 #include <arpa/inet.h>

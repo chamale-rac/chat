@@ -1,6 +1,6 @@
-// message_util.h
-#ifndef MESSAGE_UTIL_H
-#define MESSAGE_UTIL_H
+// utils.h
+#ifndef UTILS_H
+#define UTILS_H
 
 #include <vector>
 #include <string>
@@ -13,4 +13,4 @@
 bool SPM(int sock, const google::protobuf::Message &message); // SPM: Send Protobuf Message
 bool RPM(int sock, google::protobuf::Message &message);       // RPM: Receive Protobuf Message
 
-#endif // MESSAGE_UTIL_H
+#endif // UTILS_H

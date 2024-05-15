@@ -1,5 +1,5 @@
-#include "../protocols/proto/chat.pb.h"
-#include "../protocols/message/message.h"
+#include "./utils/chat.pb.h" // Include the generated protobuf header
+#include "./utils/utils.h"
 #include <iostream>
 #include <string>
 #include <map>
