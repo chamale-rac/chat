@@ -1,27 +1,25 @@
-// message_util.cpp
+// message.cpp
 #include "message.h"
 #include <iostream> // For std::cerr
 #include <vector>   // For std::vector
 #include <cstring>  // For memcpy
 #include <unistd.h> // For ssize_t
+#include <cerrno>   // For errno
 
 bool SPM(int sock, const google::protobuf::Message &message)
 {
   std::string output;
   message.SerializeToString(&output);
 
-  // Assuming a large buffer size, e.g., 64KB, adjust as necessary
-  std::vector<char> buffer(BUFFER_SIZE);
-
+  // Ensure the message fits in the buffer
   if (output.size() > BUFFER_SIZE)
   {
-    std::cerr << "Message size exceeds buffer capacity" << std::endl;
+    std::cerr << "Message size exceeds buffer capacity. Size: " << output.size() << ", Buffer Capacity: " << BUFFER_SIZE << std::endl;
     return false;
   }
 
-  memcpy(buffer.data(), output.data(), output.size());
-
-  ssize_t sentBytes = send(sock, buffer.data(), output.size(), 0);
+  // Send the message directly
+  ssize_t sentBytes = send(sock, output.data(), output.size(), 0);
   if (sentBytes < 0)
   {
     perror("send failed");
@@ -32,6 +30,8 @@ bool SPM(int sock, const google::protobuf::Message &message)
     std::cerr << "Not all data was sent. Sent " << sentBytes << " of " << output.size() << " bytes." << std::endl;
     return false;
   }
+
+  std::cerr << "Sent " << sentBytes << " bytes successfully." << std::endl;
   return true;
 }
 
@@ -39,11 +39,24 @@ bool RPM(int sock, google::protobuf::Message &message)
 {
   std::vector<char> buffer(BUFFER_SIZE);
 
-  ssize_t bytesRead = recv(sock, buffer.data(), buffer.size(), MSG_WAITALL);
+  // Read the data into the buffer
+  ssize_t bytesRead = recv(sock, buffer.data(), buffer.size(), 0);
   if (bytesRead <= 0)
   {
+    if (bytesRead < 0)
+      perror("recv failed");
+    else
+      std::cerr << "Connection closed by the peer" << std::endl;
     return false; // Handle errors or disconnection
   }
 
-  return message.ParseFromArray(buffer.data(), bytesRead);
+  // Parse the received data
+  if (!message.ParseFromArray(buffer.data(), bytesRead))
+  {
+    std::cerr << "Failed to parse the message. Bytes read: " << bytesRead << std::endl;
+    return false;
+  }
+
+  std::cerr << "Received " << bytesRead << " bytes successfully." << std::endl;
+  return true;
 }
