@@ -1,24 +1,30 @@
-# chat-system
+# 🗨️ Chat System
+
 Creating a Chat System for the Operating Systems Course
 
-## Requirements:
+## Requirements
 
-### Installing protoc
-https://grpc.io/docs/protoc-installation/
+### Installing `protoc`
 
-sudo apt update
+Follow the instructions at [gRPC protoc installation](https://grpc.io/docs/protoc-installation/).
 
-sudo apt install -y protobuf-compiler
+Alternatively, you can use the following commands:
 
-sudo apt-get install libprotobuf-dev protobuf-compiler
+```bash
+sudo apt update && sudo apt install -y protobuf-compiler libprotobuf-dev
+```
 
 ## Compilation
 
-protoc --cpp_out=. chat.proto 
+First, generate the necessary protobuf files:
 
-g++ -o chat_client ./client/console/client.cpp ./protocols/proto/chat.pb.cc ./protocols/message/message.cpp -lprotobuf
+```bash
+protoc --cpp_out=./utils ./utils/chat.proto
+```
 
-g++ -o chat_server ./server/server.cpp ./protocols/proto/chat.pb.cc ./protocols/message/message.cpp -lpthread -lprotobuf
+Then, compile the client and server:
 
-
-g++ -o chat_client ./client.cpp ./chat.pb.cc ./message.cpp -lprotobuf
+```bash
+g++ -o ./executables/client client.cpp ./utils/chat.pb.cc ./utils/message.cpp -lprotobuf
+g++ -o ./executables/server server.cpp ./utils/chat.pb.cc ./utils/message.cpp -lpthread -lprotobuf
+```
