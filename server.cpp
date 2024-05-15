@@ -16,10 +16,10 @@
 #include <cstring> // For strerror
 
 std::mutex clients_mutex;
-std::map<int, std::string> client_sessions;          // Maps client socket to username
-std::map<std::string, std::string> user_details;     // Maps username to IP address
-std::map<std::string, chat::UserStatus> user_status; // Maps username to status
-// std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking TODO: Auto Status Modification
+std::map<int, std::string> client_sessions;                               // Maps client socket to username
+std::map<std::string, std::string> user_details;                          // Maps username to IP address
+std::map<std::string, chat::UserStatus> user_status;                      // Maps username to status
+std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking TODO: Auto Status Modification
 
 /**
  * REGISTER_USER main function
@@ -332,6 +332,13 @@ void handle_client(int client_sock)
         break; // TODO: handle different.
       }
 
+      // Update last active time for the user if registered
+      if (registered)
+      {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        last_active[username] = std::chrono::system_clock::now();
+      }
+
       // Handling different types of requests
       switch (request.operation())
       {
@@ -345,6 +352,10 @@ void handle_client(int client_sock)
             std::cout << "User registered successfully." << std::endl;
             username = request.register_user().username();
             registered = true;
+
+            // Initialize last active time for the new user
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            last_active[username] = std::chrono::system_clock::now();
           }
         }
         else
@@ -438,6 +449,32 @@ void handle_client(int client_sock)
   std::cout << "Session ended and socket closed for client." << std::endl;
 }
 
+void monitor_user_activity() // TODO: consider handling like discord, if the user set it, then is immutable, but if the previous state was online, the the auto set may work.
+{
+  while (true)
+  {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    auto now = std::chrono::system_clock::now();
+
+    for (auto &entry : last_active)
+    {
+      const std::string &username = entry.first;
+      auto last_activity = entry.second;
+
+      if (std::chrono::duration_cast<std::chrono::seconds>(now - last_activity).count() > AUTO_OFFLINE_SECONDS)
+      {
+        if (user_status[username] != chat::UserStatus::OFFLINE)
+        {
+          user_status[username] = chat::UserStatus::OFFLINE;
+          std::cout << "User " << username << " has been set to OFFLINE due to inactivity." << std::endl;
+        }
+      }
+    }
+  }
+}
+
 int main(int argc, char *argv[])
 {
   if (argc != 3)
@@ -473,6 +510,9 @@ int main(int argc, char *argv[])
   }
 
   std::cout << server_name << " listening on port " << port << std::endl;
+
+  // Start the user activity monitoring thread
+  std::thread(monitor_user_activity).detach();
 
   while (true)
   {
