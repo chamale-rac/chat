@@ -48,7 +48,7 @@ bool RPM(int sock, google::protobuf::Message &message)
     if (bytesRead < 0)
       perror("recv failed");
     else
-      std::cerr << "Connection closed by the peer" << std::endl;
+      std::cerr << "Connection closed by peer." << std::endl;
     return false; // Handle errors or disconnection
   }
 

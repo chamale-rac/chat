@@ -26,11 +26,32 @@
 std::atomic<bool> running{true};
 std::atomic<bool> in_input_mode{false};
 std::atomic<bool> waiting_response{false};
+std::atomic<bool> terminate_execution{false};
 std::atomic<bool> streaming_mode{false};
 std::mutex cout_mutex;
 std::deque<std::string> message_buffer; // Buffer for messages received during input mode
 
 // TODO: add identifier uuid to each request and response to match them
+
+void terminationHandler(int sock, std::string username, std::thread &listener)
+{
+  while (!terminate_execution)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  std::cout << "Connection terminated abruptly." << std::endl;
+  // If by some reason the listener thread is still running, stop it
+  running = false;
+  if (listener.joinable())
+  {
+    listener.join(); // Wait for the listener thread to finish
+  }
+  // Close the socket
+  close(sock);
+
+  std::cout << "Exiting..." << std::endl;
+  exit(0); // Terminate the program
+}
 
 void flush_message_buffer()
 {
@@ -131,11 +152,10 @@ void messageListener(int sock)
     }
     else
     {
-      if (!waiting_response)
-        std::cerr << RED "Failed to receive a message or connection closed by server." RESET << std::endl;
       break;
     }
   }
+  terminate_execution = true;
 }
 
 void displayHelp()
@@ -296,6 +316,10 @@ int main(int argc, char *argv[])
   std::thread listener(messageListener, sock);
   listener.detach();
 
+  // Start the termination handler thread
+  std::thread terminator(terminationHandler, sock, username, std::ref(listener));
+  terminator.detach(); // Detach the thread so it can run independently
+
   int choice = 0;
 
   displayHelp();
@@ -438,7 +462,6 @@ int main(int argc, char *argv[])
         {
           listener.join(); // Wait for the listener thread to finish
         }
-        waiting_response = false;
         // 2. Send the unregister request
         handleUnregisterUser(sock, username);
         // 3. Wait for the server to respond
@@ -446,11 +469,7 @@ int main(int argc, char *argv[])
         {
           std::cout << "SERVER: " << response.message() << std::endl;
         }
-        else
-        {
-          std::cerr << "Connection closed." << std::endl;
-        }
-        std::cout << "Exiting..." << std::endl;
+        waiting_response = false;
         break;
       }
     }
@@ -463,9 +482,17 @@ int main(int argc, char *argv[])
     in_input_mode = false; // Reset input mode after action is handled
     while (waiting_response)
     {
+      if (terminate_execution)
+      {
+        break;
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     flush_message_buffer();
+    if (terminate_execution)
+    {
+      break;
+    }
   } while (choice != 8);
 
   // If by some reason the listener thread is still running, stop it
@@ -477,5 +504,6 @@ int main(int argc, char *argv[])
   // Close the socket
   close(sock);
 
+  std::cout << "Exiting..." << std::endl;
   return 0;
 }
