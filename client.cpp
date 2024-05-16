@@ -124,15 +124,15 @@ void messageListener(int sock)
 
 void displayHelp()
 {
-  std::cout << "Help - List of commands\n";
-  std::cout << "1. Broadcast Message: Send a message to all users\n";
-  std::cout << "2. Send Direct Message: Send a message to a specific user\n";
-  std::cout << "3. Change Status: Change your status\n";
-  std::cout << "4. List Users: List all users online\n";
-  std::cout << "5. Get User Info: Get information about a specific user\n";
-  std::cout << "6. Help: Display this help message\n";
-  std::cout << "7. Stream Messages: Stream messages from the server\n";
-  std::cout << "8. Exit: Exit the program\n";
+  std::cout << "Commands:\n";
+  std::cout << "send <message>\n";
+  std::cout << "sendto <recipient> <message>\n";
+  std::cout << "status <status>\n";
+  std::cout << "list\n";
+  std::cout << "info <username>\n";
+  std::cout << "help\n";
+  std::cout << "stream\n";
+  std::cout << "exit\n\n";
 }
 
 void handleBroadcastMessage(int sock, const std::string &message)
@@ -176,7 +176,7 @@ void handleChangeStatus(int sock, const std::string &status)
   }
   else
   {
-    std::cout << "Invalid status.\n";
+    std::cout << "Invalid status: Valid ones are: ONLINE, BUSY & OFFLINE\n";
     return;
   }
 
@@ -260,6 +260,11 @@ int main(int argc, char *argv[])
   if (RPM(sock, response))
   {
     std::cout << "Server response: " << response.message() << std::endl;
+    if (response.status_code() != chat::StatusCode::OK)
+    {
+      message = RED "Server error: " + response.message() + RESET;
+      return -1;
+    }
   }
   else
   {
@@ -274,12 +279,12 @@ int main(int argc, char *argv[])
   int choice = 0;
   do
   {
-    printMenu();
     in_input_mode = true; // Set input mode to true to suppress messageListener output
     waiting_response = true;
 
+    displayHelp();
     std::string command;
-    std::cout << "Enter command >> ";
+    std::cout << ">> ";
     std::cin.ignore(); // Clear the newline character from the input buffer
     std::getline(std::cin, command);
 
@@ -291,27 +296,64 @@ int main(int argc, char *argv[])
       words.push_back(s);
     }
 
+    size_t length = words.size();
+
     switch (words[0])
     {
     case "send":
-      handleBroadcastMessage(sock);
+      if (length != 2)
+      {
+        std::cout << "Invalid command. Usage: send <message>\n";
+        break;
+      }
+      handleBroadcastMessage(sock, words[1]);
       break;
     case "sendto":
-      handleDirectMessage(sock);
+      if (length != 3)
+      {
+        std::cout << "Invalid command. Usage: sendto <recipient> <message>\n";
+        break;
+      }
+      handleDirectMessage(sock, words[1], words[2]);
       break;
     case "status":
-      handleChangeStatus(sock);
+      if (length != 2)
+      {
+        std::cout << "Invalid command. Usage: status <status>\n";
+        break;
+      }
+      handleChangeStatus(sock, words[1]);
       break;
     case "list":
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: list\n";
+        break;
+      }
       handleListUsers(sock);
       break;
     case "info":
-      handleGetUserInfo(sock);
+      if (length != 2)
+      {
+        std::cout << "Invalid command. Usage: info <username>\n";
+        break;
+      }
+      handleGetUserInfo(sock, words[1]);
       break;
     case "help":
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: help\n";
+        break;
+      }
       displayHelp();
       break;
     case "stream":
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: stream\n";
+        break;
+      }
       if (!streaming_mode)
       {
         flush_message_buffer();
@@ -322,6 +364,11 @@ int main(int argc, char *argv[])
       waiting_response = false;
       break;
     case "exit":
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: exit\n";
+        break;
+      }
       // This is the exit option and special handling is required
       // 1. Stop running the listener thread
       running = false;
