@@ -13,6 +13,7 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <sstream>
 
 #define RED "\x1b[31m"
 #define GREEN "\x1b[32m"
@@ -121,27 +122,21 @@ void messageListener(int sock)
   }
 }
 
-void printMenu()
+void displayHelp()
 {
-  std::lock_guard<std::mutex> lock(cout_mutex);
-  std::cout << GREEN << "1. Broadcast Message\n";
-  std::cout << "2. Send Direct Message\n";
-  std::cout << "3. Change Status\n";
-  std::cout << "4. List Users\n";
-  std::cout << "5. Get User Info\n";
-  std::cout << "6. Help\n";
-  std::cout << "7. Stream Messages\n";
-  std::cout << "8. Exit\n"
-            << RESET;
-  std::cout << "Enter choice: ";
+  std::cout << "Help - List of commands\n";
+  std::cout << "1. Broadcast Message: Send a message to all users\n";
+  std::cout << "2. Send Direct Message: Send a message to a specific user\n";
+  std::cout << "3. Change Status: Change your status\n";
+  std::cout << "4. List Users: List all users online\n";
+  std::cout << "5. Get User Info: Get information about a specific user\n";
+  std::cout << "6. Help: Display this help message\n";
+  std::cout << "7. Stream Messages: Stream messages from the server\n";
+  std::cout << "8. Exit: Exit the program\n";
 }
-void handleBroadcastMessage(int sock)
-{
-  std::string message;
-  std::cout << "Enter message to broadcast: ";
-  std::cin.ignore(); // Clear the newline character from the input buffer
-  std::getline(std::cin, message);
 
+void handleBroadcastMessage(int sock, const std::string &message)
+{
   chat::Request request;
   request.set_operation(chat::Operation::SEND_MESSAGE);
   auto *msg = request.mutable_send_message();
@@ -150,17 +145,8 @@ void handleBroadcastMessage(int sock)
   SPM(sock, request);
 }
 
-void handleDirectMessage(int sock)
+void handleDirectMessage(int sock, const std::string &recipient, const std::string &message)
 {
-  std::string recipient;
-  std::cout << "Enter recipient username: ";
-  std::cin >> recipient;
-
-  std::string message;
-  std::cout << "Enter message to send: ";
-  std::cin.ignore(); // Clear the newline character from the input buffer
-  std::getline(std::cin, message);
-
   chat::Request request;
   request.set_operation(chat::Operation::SEND_MESSAGE);
   auto *msg = request.mutable_send_message();
@@ -170,27 +156,26 @@ void handleDirectMessage(int sock)
   SPM(sock, request);
 }
 
-void handleChangeStatus(int sock)
+void handleChangeStatus(int sock, const std::string &status)
 {
-  int status;
-  std::cout << "Select status - 1: Online, 2: Busy, 3: Offline: ";
-  std::cin >> status;
-
   chat::Request request;
   request.set_operation(chat::Operation::UPDATE_STATUS);
   auto *status_request = request.mutable_update_status();
-  switch (status)
+
+  if (status == "ONLINE")
   {
-  case 1:
     status_request->set_new_status(chat::UserStatus::ONLINE);
-    break;
-  case 2:
+  }
+  else if (status == "BUSY")
+  {
     status_request->set_new_status(chat::UserStatus::BUSY);
-    break;
-  case 3:
+  }
+  else if (status == "OFFLINE")
+  {
     status_request->set_new_status(chat::UserStatus::OFFLINE);
-    break;
-  default:
+  }
+  else
+  {
     std::cout << "Invalid status.\n";
     return;
   }
@@ -207,31 +192,14 @@ void handleListUsers(int sock)
   SPM(sock, request);
 }
 
-void handleGetUserInfo(int sock)
+void handleGetUserInfo(int sock, const std::string &username)
 {
-  std::string username;
-  std::cout << "Enter username to get info: ";
-  std::cin >> username;
-
   chat::Request request;
   request.set_operation(chat::Operation::GET_USERS);
   auto *user_list = request.mutable_get_users();
   user_list->set_username(username);
 
   SPM(sock, request);
-}
-
-void displayHelp()
-{
-  std::cout << "Help - List of commands\n";
-  std::cout << "1. Broadcast Message: Send a message to all users\n";
-  std::cout << "2. Send Direct Message: Send a message to a specific user\n";
-  std::cout << "3. Change Status: Change your status\n";
-  std::cout << "4. List Users: List all users online\n";
-  std::cout << "5. Get User Info: Get information about a specific user\n";
-  std::cout << "6. Help: Display this help message\n";
-  std::cout << "7. Stream Messages: Stream messages from the server\n";
-  std::cout << "8. Exit: Exit the program\n";
 }
 
 void handleUnregisterUser(int sock, const std::string &username)
@@ -309,28 +277,41 @@ int main(int argc, char *argv[])
     printMenu();
     in_input_mode = true; // Set input mode to true to suppress messageListener output
     waiting_response = true;
-    std::cin >> choice;
-    switch (choice)
+
+    std::string command;
+    std::cout << "Enter command >> ";
+    std::cin.ignore(); // Clear the newline character from the input buffer
+    std::getline(std::cin, command);
+
+    std::istringstream iss(command);
+    std::vector<std::string> words;
+
+    for (std::string s; iss >> s;)
     {
-    case 1:
+      words.push_back(s);
+    }
+
+    switch (words[0])
+    {
+    case "send":
       handleBroadcastMessage(sock);
       break;
-    case 2:
+    case "sendto":
       handleDirectMessage(sock);
       break;
-    case 3:
+    case "status":
       handleChangeStatus(sock);
       break;
-    case 4:
+    case "list":
       handleListUsers(sock);
       break;
-    case 5:
+    case "info":
       handleGetUserInfo(sock);
       break;
-    case 6:
+    case "help":
       displayHelp();
       break;
-    case 7:
+    case "stream":
       if (!streaming_mode)
       {
         flush_message_buffer();
@@ -340,7 +321,7 @@ int main(int argc, char *argv[])
       flush_message_buffer();
       waiting_response = false;
       break;
-    case 8:
+    case "exit":
       // This is the exit option and special handling is required
       // 1. Stop running the listener thread
       running = false;
