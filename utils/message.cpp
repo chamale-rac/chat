@@ -31,7 +31,9 @@ bool SPM(int sock, const google::protobuf::Message &message)
     return false;
   }
 
-  std::cerr << "Sent " << sentBytes << " bytes successfully." << std::endl;
+  if (VERBOSE)
+    std::cerr << "Sent " << sentBytes << " bytes successfully." << std::endl;
+
   return true;
 }
 
@@ -57,6 +59,7 @@ bool RPM(int sock, google::protobuf::Message &message)
     return false;
   }
 
-  std::cerr << "Received " << bytesRead << " bytes successfully." << std::endl;
+  if (VERBOSE)
+    std::cerr << "Received " << bytesRead << " bytes successfully." << std::endl;
   return true;
 }

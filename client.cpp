@@ -285,39 +285,46 @@ int main(int argc, char *argv[])
     displayHelp();
     std::string command;
     std::cout << ">> ";
-    std::cin.ignore(); // Clear the newline character from the input buffer
     std::getline(std::cin, command);
 
     std::istringstream iss(command);
     std::vector<std::string> words;
+    std::string word;
 
-    for (std::string s; iss >> s;)
+    while (iss >> word)
     {
-      words.push_back(s);
+      words.push_back(word);
     }
 
     size_t length = words.size();
 
-    if (words[0] == "send")
+    if (length == 0)
     {
-      if (length != 2)
+      std::cout << "Invalid choice, please try again.\n";
+    }
+    else if (words[0] == "send")
+    {
+      if (length < 2)
       {
         std::cout << "Invalid command. Usage: send <message>\n";
       }
       else
       {
-        handleBroadcastMessage(sock, words[1]);
+        std::string message = command.substr(command.find(" ") + 1);
+        handleBroadcastMessage(sock, message);
       }
     }
     else if (words[0] == "sendto")
     {
-      if (length != 3)
+      if (length < 3)
       {
         std::cout << "Invalid command. Usage: sendto <recipient> <message>\n";
       }
       else
       {
-        handleDirectMessage(sock, words[1], words[2]);
+        std::string recipient = words[1];
+        std::string message = command.substr(command.find(recipient) + recipient.length() + 1);
+        handleDirectMessage(sock, recipient, message);
       }
     }
     else if (words[0] == "status")
@@ -410,6 +417,7 @@ int main(int argc, char *argv[])
           std::cerr << "Connection closed." << std::endl;
         }
         std::cout << "Exiting..." << std::endl;
+        break;
       }
     }
     else

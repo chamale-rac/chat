@@ -296,7 +296,8 @@ void unregister_user(int client_sock, bool forced = false)
     user_details.erase(username);
 
     user_status.erase(username);
-    // last_active.erase(username);
+
+    last_active.erase(username);
 
     // Prepare a response message
     response.set_message("User unregistered successfully.");
