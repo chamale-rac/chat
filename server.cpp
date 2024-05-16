@@ -330,7 +330,13 @@ void handle_client(int client_sock)
       if (RPM(client_sock, request) == false)
       {
         std::cerr << "Failed to read message from client. Closing connection." << std::endl;
-        break; // TODO: handle different.
+
+        // Unregister user if registered
+        if (registered)
+        {
+          unregister_user(client_sock, true);
+        }
+        break;
       }
 
       // Update last active time for the user if registered
