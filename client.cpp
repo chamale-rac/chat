@@ -298,103 +298,126 @@ int main(int argc, char *argv[])
 
     size_t length = words.size();
 
-    switch (words[0])
+    if (words[0] == "send")
     {
-    case "send":
       if (length != 2)
       {
         std::cout << "Invalid command. Usage: send <message>\n";
-        break;
-      }
-      handleBroadcastMessage(sock, words[1]);
-      break;
-    case "sendto":
-      if (length != 3)
-      {
-        std::cout << "Invalid command. Usage: sendto <recipient> <message>\n";
-        break;
-      }
-      handleDirectMessage(sock, words[1], words[2]);
-      break;
-    case "status":
-      if (length != 2)
-      {
-        std::cout << "Invalid command. Usage: status <status>\n";
-        break;
-      }
-      handleChangeStatus(sock, words[1]);
-      break;
-    case "list":
-      if (length != 1)
-      {
-        std::cout << "Invalid command. Usage: list\n";
-        break;
-      }
-      handleListUsers(sock);
-      break;
-    case "info":
-      if (length != 2)
-      {
-        std::cout << "Invalid command. Usage: info <username>\n";
-        break;
-      }
-      handleGetUserInfo(sock, words[1]);
-      break;
-    case "help":
-      if (length != 1)
-      {
-        std::cout << "Invalid command. Usage: help\n";
-        break;
-      }
-      displayHelp();
-      break;
-    case "stream":
-      if (length != 1)
-      {
-        std::cout << "Invalid command. Usage: stream\n";
-        break;
-      }
-      if (!streaming_mode)
-      {
-        flush_message_buffer();
-      }
-      streaming_mode = !streaming_mode;
-      std::cout << "Streaming mode: " << (streaming_mode ? "ON" : "OFF") << std::endl;
-      flush_message_buffer();
-      waiting_response = false;
-      break;
-    case "exit":
-      if (length != 1)
-      {
-        std::cout << "Invalid command. Usage: exit\n";
-        break;
-      }
-      // This is the exit option and special handling is required
-      // 1. Stop running the listener thread
-      running = false;
-      if (listener.joinable())
-      {
-        listener.join(); // Wait for the listener thread to finish
-      }
-      waiting_response = false;
-      // 2. Send the unregister request
-      handleUnregisterUser(sock, username);
-      // 3. Wait for the server to respond
-      if (RPM(sock, response))
-      {
-        std::cout << "Server response: " << response.message() << std::endl;
       }
       else
       {
-        std::cerr << "Connection closed." << std::endl;
+        handleBroadcastMessage(sock, words[1]);
       }
-      std::cout << "Exiting..." << std::endl;
-      break;
-    default:
+    }
+    else if (words[0] == "sendto")
+    {
+      if (length != 3)
+      {
+        std::cout << "Invalid command. Usage: sendto <recipient> <message>\n";
+      }
+      else
+      {
+        handleDirectMessage(sock, words[1], words[2]);
+      }
+    }
+    else if (words[0] == "status")
+    {
+      if (length != 2)
+      {
+        std::cout << "Invalid command. Usage: status <status>\n";
+      }
+      else
+      {
+        handleChangeStatus(sock, words[1]);
+      }
+    }
+    else if (words[0] == "list")
+    {
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: list\n";
+      }
+      else
+      {
+        handleListUsers(sock);
+      }
+    }
+    else if (words[0] == "info")
+    {
+      if (length != 2)
+      {
+        std::cout << "Invalid command. Usage: info <username>\n";
+      }
+      else
+      {
+        handleGetUserInfo(sock, words[1]);
+      }
+    }
+    else if (words[0] == "help")
+    {
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: help\n";
+      }
+      else
+      {
+        displayHelp();
+      }
+    }
+    else if (words[0] == "stream")
+    {
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: stream\n";
+      }
+      else
+      {
+        if (!streaming_mode)
+        {
+          flush_message_buffer();
+        }
+        streaming_mode = !streaming_mode;
+        std::cout << "Streaming mode: " << (streaming_mode ? "ON" : "OFF") << std::endl;
+        flush_message_buffer();
+        waiting_response = false;
+      }
+    }
+    else if (words[0] == "exit")
+    {
+      if (length != 1)
+      {
+        std::cout << "Invalid command. Usage: exit\n";
+      }
+      else
+      {
+        // This is the exit option and special handling is required
+        // 1. Stop running the listener thread
+        running = false;
+        if (listener.joinable())
+        {
+          listener.join(); // Wait for the listener thread to finish
+        }
+        waiting_response = false;
+        // 2. Send the unregister request
+        handleUnregisterUser(sock, username);
+        // 3. Wait for the server to respond
+        if (RPM(sock, response))
+        {
+          std::cout << "Server response: " << response.message() << std::endl;
+        }
+        else
+        {
+          std::cerr << "Connection closed." << std::endl;
+        }
+        std::cout << "Exiting..." << std::endl;
+      }
+    }
+    else
+    {
       std::cout << "Invalid choice, please try again.\n";
       waiting_response = false;
-      break;
     }
+
     in_input_mode = false; // Reset input mode after action is handled
     while (waiting_response)
     {
