@@ -21,6 +21,8 @@ std::map<std::string, std::string> user_details;                          // Map
 std::map<std::string, chat::UserStatus> user_status;                      // Maps username to status
 std::map<std::string, std::chrono::system_clock::time_point> last_active; // User activity tracking TODO: Auto Status Modification
 
+std::atomic<bool> running(true);
+int server_fd;
 /**
  * REGISTER_USER main function
  */
@@ -482,6 +484,37 @@ void monitor_user_activity() // TODO: consider handling like discord, if the use
   }
 }
 
+void terminationHandler()
+{
+  std::string input;
+  while (true)
+  {
+    std::getline(std::cin, input);
+    if (input == "exit")
+    {
+      running = false;
+      break;
+    }
+  }
+
+  // Close the server socket
+  close(server_fd);
+  std::cout << "Server terminated." << std::endl;
+  exit(0); // Terminate the program
+}
+
+void signalHandler(int signum)
+{
+  std::cout << "\nInterrupt signal (" << signum << ") received.\n";
+
+  // Close the server socket
+  close(server_fd);
+  running = false;
+
+  std::cout << "Server terminated due to signal." << std::endl;
+  exit(signum);
+}
+
 int main(int argc, char *argv[])
 {
   if (argc != 3)
@@ -492,10 +525,17 @@ int main(int argc, char *argv[])
   int port = std::stoi(argv[1]);
   std::string server_name = argv[2];
 
-  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd == 0)
   {
     perror("Socket creation failed");
+    return 1;
+  }
+
+  int opt = 1;
+  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)))
+  {
+    perror("setsockopt failed");
     return 1;
   }
 
@@ -517,15 +557,24 @@ int main(int argc, char *argv[])
   }
 
   std::cout << server_name << " listening on port " << port << std::endl;
-
+  std::cout << "Write 'exit' to terminate the server." << std::endl;
   // Start the user activity monitoring thread
   std::thread(monitor_user_activity).detach();
 
-  while (true)
+  // Start the termination handler thread
+  std::thread terminator(terminationHandler);
+  terminator.detach();
+
+  // Set up signal handler for SIGINT (Ctrl+C)
+  signal(SIGINT, signalHandler);
+
+  while (running)
   {
     int client_sock = accept(server_fd, NULL, NULL);
     if (client_sock < 0)
     {
+      if (!running)
+        break; // Exit if server is shutting down
       perror("Accept failed");
       continue;
     }
@@ -534,5 +583,7 @@ int main(int argc, char *argv[])
     client_thread.detach();
   }
 
+  // Clean up
+  close(server_fd);
   return 0;
 }
