@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
     std::cout << "Server response: " << response.message() << std::endl;
     if (response.status_code() != chat::StatusCode::OK)
     {
-      message = RED "Server error: " + response.message() + RESET;
+      std::cout << RED "Server error: " + response.message() + RESET;
       return -1;
     }
   }
