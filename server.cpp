@@ -99,7 +99,8 @@ bool handle_registration(const chat::Request &request, int client_sock, chat::Op
 void add_user_to_response(const std::pair<std::string, std::string> &user, chat::UserListResponse &response)
 {
   chat::User *user_proto = response.add_users();
-  user_proto->set_username(user.first);
+  // Username concatenated string: <username> (<ip>)
+  user_proto->set_username(user.first + " (" + user.second + ")");
   user_proto->set_status(user_status[user.first]);
 }
 
@@ -269,12 +270,13 @@ void update_user_status_and_time(int client_sock, const chat::UpdateStatusReques
 /**
  * UPDATE_STATUS main function
  */
-void update_status(const chat::Request &request, int client_sock)
+void update_status(const chat::Request &request, int client_sock, chat::Operation operation)
 {
   auto status_request = request.update_status();
   update_user_status_and_time(client_sock, status_request);
 
   chat::Response response;
+  response.set_operation(operation);
   response.set_message("Status updated successfully."); // Consider replacing this with a constant or a configuration value
   response.set_status_code(chat::StatusCode::OK);
   SPM(client_sock, response);
@@ -302,6 +304,7 @@ void unregister_user(int client_sock, bool forced = false)
     last_active.erase(username);
 
     // Prepare a response message
+    response.set_operation(chat::Operation::UNREGISTER_USER);
     response.set_message("User unregistered successfully.");
     response.set_status_code(chat::StatusCode::OK);
   }
@@ -392,7 +395,7 @@ void handle_client(int client_sock)
       case chat::Operation::UPDATE_STATUS:
         if (registered)
         {
-          update_status(request, client_sock);
+          update_status(request, client_sock, chat::Operation::UPDATE_STATUS);
         }
         else
         {

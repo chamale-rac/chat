@@ -28,3 +28,17 @@ Then, compile the client and server:
 g++ -o ./executables/client client.cpp ./utils/chat.pb.cc ./utils/message.cpp ./utils/constants.h -lprotobuf
 g++ -o ./executables/server server.cpp ./utils/chat.pb.cc ./utils/message.cpp ./utils/constants.h -lpthread -lprotobuf
 ```
+
+Finally execute them as:
+```
+./executables/server 
+```
+
+> Usage: ./executables/server port server_name
+
+and
+
+```bash
+./executables/client
+```
+> Usage: ./executables/client server IP server port username
