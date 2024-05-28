@@ -31,6 +31,9 @@ std::atomic<bool> streaming_mode{false};
 std::mutex cout_mutex;
 std::deque<std::string> message_buffer; // Buffer for messages received during input mode
 
+// save globally the username
+std::string username_global;
+
 // TODO: add identifier uuid to each request and response to match them
 
 void terminationHandler(int sock, std::string username, std::thread &listener)
@@ -198,6 +201,7 @@ bool handleChangeStatus(int sock, const std::string &status)
 {
   chat::Request request;
   request.set_operation(chat::Operation::UPDATE_STATUS);
+  request.set_username(username_global);
   auto *status_request = request.mutable_update_status();
 
   if (status == "ONLINE")
@@ -262,6 +266,7 @@ int main(int argc, char *argv[])
   std::string server_ip = argv[1];
   int server_port = std::stoi(argv[2]);
   std::string username = argv[3];
+  username_global = username;
 
   int sock = 0;
   struct sockaddr_in serv_addr;

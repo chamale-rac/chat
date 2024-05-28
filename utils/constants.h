@@ -11,7 +11,7 @@ constexpr bool HANDLE_UNIQUE_IP = false;
 constexpr int AUTO_OFFLINE_SECONDS = 10;
 
 // Indicating the static size of the buffer
-constexpr size_t BUFFER_SIZE = 64 * 1024;
+constexpr size_t BUFFER_SIZE = 64 * 1024; // This is 64 KB
 
 // Indicating if using verbose mode
 constexpr bool VERBOSE = false;
