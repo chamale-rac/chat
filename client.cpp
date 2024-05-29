@@ -201,8 +201,9 @@ bool handleChangeStatus(int sock, const std::string &status)
 {
   chat::Request request;
   request.set_operation(chat::Operation::UPDATE_STATUS);
-  request.set_username(username_global);
   auto *status_request = request.mutable_update_status();
+  // Set username
+  status_request->set_username(username_global);
 
   if (status == "ONLINE")
   {
